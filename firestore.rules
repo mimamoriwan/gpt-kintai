@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role() { return signedIn() && request.auth.token.role is string ? request.auth.token.role : 'employee'; }
+    function manager() { return role() == 'employee_manager'; }
+    function viewer() { return manager() || role() == 'president_viewer'; }
+    function owner(data) { return signedIn() && data.userId == request.auth.uid; }
+
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || viewer());
+      allow list: if viewer();
+      allow write: if false;
+    }
+    match /categories/{categoryId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /attendance/{recordId} {
+      allow get, list: if owner(resource.data) || viewer();
+      allow write: if false;
+    }
+    match /dailyReports/{reportId} {
+      allow get, list: if owner(resource.data) || viewer();
+      allow write: if false;
+      match /revisions/{revisionId} {
+        allow read: if signedIn() && (get(/databases/$(database)/documents/dailyReports/$(reportId)).data.userId == request.auth.uid || viewer());
+        allow write: if false;
+      }
+    }
+    match /auditEvents/{eventId} {
+      allow get, list: if signedIn() && (resource.data.subjectUserId == request.auth.uid || viewer());
+      allow write: if false;
+    }
+  }
+}

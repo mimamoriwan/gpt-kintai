@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function role() { return signedIn() && request.auth.token.role is string ? request.auth.token.role : 'employee'; }
+    function viewer() { return role() == 'employee_manager' || role() == 'president_viewer'; }
+    function allowedType() {
+      return request.resource.contentType.matches('image/(jpeg|png)')
+        || request.resource.contentType == 'application/pdf'
+        || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    function allowedSize() {
+      return request.resource.contentType.matches('image/.*')
+        ? request.resource.size <= 1024 * 1024
+        : request.resource.size <= 10 * 1024 * 1024;
+    }
+    match /reports/{uid}/{reportId}/{fileName} {
+      allow read: if signedIn() && (request.auth.uid == uid || viewer());
+      allow create: if signedIn() && role() != 'president_viewer' && request.auth.uid == uid && allowedType() && allowedSize();
+      allow update, delete: if false;
+    }
+  }
+}

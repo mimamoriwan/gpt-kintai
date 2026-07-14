@@ -1,0 +1,203 @@
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import type { Locale } from "./types";
+
+const translations = {
+  ja: {
+    appName: "GyoumuLog",
+    appSubtitle: "勤怠・業務記録",
+    home: "ホーム",
+    dailyReport: "日報",
+    records: "記録",
+    admin: "管理",
+    settings: "設定",
+    today: "今日",
+    workStatus: "今日の勤務",
+    clockIn: "始業する",
+    clockOut: "終業する",
+    working: "勤務中",
+    finished: "本日の勤務を終了しました",
+    startTime: "始業時刻",
+    endTime: "終業時刻",
+    elapsed: "経過時間（休憩未控除）",
+    office: "出社",
+    business_trip: "出張",
+    homeWork: "在宅",
+    other: "その他",
+    reportReminder: "今日の日報がまだ提出されていません",
+    unclosedReminder: "始業中です。終業時に打刻してください",
+    writeReport: "今日の日報を書く",
+    saveSubmit: "提出する",
+    submitting: "提出中…",
+    sourceLanguage: "入力言語",
+    japanese: "日本語",
+    chinese: "中文",
+    category: "業務カテゴリ",
+    area: "地域",
+    destinations: "訪問先",
+    activities: "業務内容",
+    findings: "結果・気づき",
+    nextPlan: "次の予定",
+    attachments: "写真・ファイル・リンク",
+    addFiles: "ファイルを追加",
+    addLink: "リンクを追加",
+    submitted: "提出済み",
+    translationPending: "日本語化中",
+    translationFailed: "日本語化できませんでした",
+    retry: "再実行",
+    translated: "日本語版",
+    original: "原文",
+    reviewNeeded: "確認が必要",
+    reviewed: "確認済み",
+    markReviewed: "確認済みにする",
+    periodSummary: "期間集計",
+    attendanceDays: "勤務記録日数",
+    reportCount: "日報件数",
+    totalElapsed: "経過時間合計（休憩未控除）",
+    filterUser: "利用者",
+    from: "開始日",
+    to: "終了日",
+    allUsers: "全員",
+    signOut: "ログアウト",
+    language: "画面の言語",
+    login: "ログイン",
+    email: "メールアドレス",
+    password: "パスワード",
+    loginHelp: "管理者から案内されたアカウントでログインしてください。",
+    noPublicSignup: "一般向けの新規登録はありません。",
+    correction: "記録を修正",
+    correctionReason: "修正理由",
+    cancel: "キャンセル",
+    save: "保存",
+    back: "戻る",
+    noData: "該当する記録はありません",
+    backup: "月次バックアップ",
+    download: "ダウンロード",
+    accountManagement: "アカウント管理",
+    invite: "アカウントを追加",
+    displayName: "氏名",
+    role: "権限",
+    employee: "従業員",
+    manager: "従業員・管理担当",
+    president: "社長（閲覧のみ）",
+    categorySettings: "業務カテゴリ設定",
+    systemNotice: "このシステムは実働・残業・給与を計算しません。",
+    editSubmitted: "提出済み日報を修正",
+    error: "処理できませんでした",
+    success: "保存しました"
+  },
+  "zh-CN": {
+    appName: "GyoumuLog",
+    appSubtitle: "考勤・工作记录",
+    home: "首页",
+    dailyReport: "日报",
+    records: "记录",
+    admin: "管理",
+    settings: "设置",
+    today: "今天",
+    workStatus: "今日工作",
+    clockIn: "开始工作",
+    clockOut: "结束工作",
+    working: "工作中",
+    finished: "今天的工作已结束",
+    startTime: "开始时间",
+    endTime: "结束时间",
+    elapsed: "经过时间（未扣除休息）",
+    office: "到公司",
+    business_trip: "出差",
+    homeWork: "居家",
+    other: "其他",
+    reportReminder: "今天的日报尚未提交",
+    unclosedReminder: "正在工作中，结束时请打卡",
+    writeReport: "填写今天的日报",
+    saveSubmit: "提交",
+    submitting: "提交中…",
+    sourceLanguage: "输入语言",
+    japanese: "日语",
+    chinese: "中文",
+    category: "工作类别",
+    area: "地区",
+    destinations: "访问单位",
+    activities: "工作内容",
+    findings: "结果与发现",
+    nextPlan: "下一步计划",
+    attachments: "照片・文件・链接",
+    addFiles: "添加文件",
+    addLink: "添加链接",
+    submitted: "已提交",
+    translationPending: "正在生成日语",
+    translationFailed: "日语生成失败",
+    retry: "重试",
+    translated: "日语版",
+    original: "原文",
+    reviewNeeded: "需要确认",
+    reviewed: "已确认",
+    markReviewed: "标记为已确认",
+    periodSummary: "期间汇总",
+    attendanceDays: "工作记录天数",
+    reportCount: "日报数量",
+    totalElapsed: "经过时间合计（未扣除休息）",
+    filterUser: "用户",
+    from: "开始日期",
+    to: "结束日期",
+    allUsers: "全部",
+    signOut: "退出登录",
+    language: "界面语言",
+    login: "登录",
+    email: "电子邮箱",
+    password: "密码",
+    loginHelp: "请使用管理员提供的账号登录。",
+    noPublicSignup: "本系统不提供公开注册。",
+    correction: "修改记录",
+    correctionReason: "修改原因",
+    cancel: "取消",
+    save: "保存",
+    back: "返回",
+    noData: "没有符合条件的记录",
+    backup: "月度备份",
+    download: "下载",
+    accountManagement: "账号管理",
+    invite: "添加账号",
+    displayName: "姓名",
+    role: "权限",
+    employee: "员工",
+    manager: "员工・管理员",
+    president: "社长（只读）",
+    categorySettings: "工作类别设置",
+    systemNotice: "本系统不计算实际工时、加班或工资。",
+    editSubmitted: "修改已提交日报",
+    error: "处理失败",
+    success: "保存成功"
+  }
+} as const;
+
+type TranslationKey = keyof typeof translations.ja;
+
+interface I18nValue {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (key: TranslationKey) => string;
+}
+
+const I18nContext = createContext<I18nValue | null>(null);
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [locale, setLocaleState] = useState<Locale>(() =>
+    localStorage.getItem("gyoumulog-locale") === "zh-CN" ? "zh-CN" : "ja"
+  );
+  const value = useMemo<I18nValue>(() => ({
+    locale,
+    setLocale(next) {
+      localStorage.setItem("gyoumulog-locale", next);
+      document.documentElement.lang = next;
+      setLocaleState(next);
+    },
+    t: (key) => translations[locale][key]
+  }), [locale]);
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+export function useI18n(): I18nValue {
+  const value = useContext(I18nContext);
+  if (!value) throw new Error("I18nProvider is missing");
+  return value;
+}
