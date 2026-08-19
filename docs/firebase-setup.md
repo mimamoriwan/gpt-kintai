@@ -28,12 +28,25 @@ npm run bootstrap:production
 
 方さん、管理担当者、社長のメールアドレスを順に入力します。表示されたパスワード設定URLは、それぞれ本人へ個別に共有してください。
 
+先に管理担当者だけで動作確認する場合は、次の形式で登録できます。方さんと社長は、運用開始前に管理画面から招待します。
+
+```bash
+npm run bootstrap:production -- --project <プロジェクトID> --mode manager-only --name <表示名> --email <メールアドレス>
+```
+
 ## 4. 配置する
 
 ```bash
 npm run build:all
 firebase use <プロジェクトID>
 firebase deploy
+```
+
+既存の予定データがある環境でカレンダーv2へ更新するときは、配置前に対象件数を確認し、バックアップ後に移行を適用します。
+
+```bash
+npm run calendar:v2:dry-run
+node scripts/migrate-calendar-v2.mjs --project <プロジェクトID> --confirm-project <プロジェクトID> --apply --backup tmp/calendar-v2-backup-YYYYMMDD.json
 ```
 
 配置後、方さん・管理担当者・社長の3権限でログインし、試用受入項目を確認します。
@@ -43,4 +56,4 @@ firebase deploy
 - Google Cloud Billingで低額の予算通知を複数段階（例: 500円、1,000円、3,000円相当）に設定します。
 - OpenAI Platformにも低額の利用通知・上限を設定します。
 - 予算通知は課金を自動停止しないため、管理画面の月間利用量と請求画面を毎月確認します。
-- FunctionsはNode.js 20を使用します。
+- FunctionsはNode.js 22を使用します。

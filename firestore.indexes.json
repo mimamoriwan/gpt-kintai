@@ -31,6 +31,23 @@
         { "fieldPath": "reportDate", "order": "DESCENDING" },
         { "fieldPath": "reviewStatus", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "calendarEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isDemo", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "calendarEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isDemo", "order": "ASCENDING" },
+        { "fieldPath": "demoDatasetId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

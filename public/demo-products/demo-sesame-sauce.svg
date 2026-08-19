@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title">
+  <title id="title">DEMO 黒ごま香味だれ</title><rect width="800" height="800" rx="90" fill="#eef0f4"/><path d="M285 105h230l40 110 18 465H227l18-465z" fill="#34323a" stroke="#17151b" stroke-width="14"/><rect x="275" y="80" width="250" height="85" rx="20" fill="#867047"/>
+  <rect x="265" y="280" width="270" height="270" rx="28" fill="#f4e7c7"/><circle cx="350" cy="378" r="35" fill="#1f1d23"/><circle cx="440" cy="390" r="45" fill="#29262e"/><circle cx="395" cy="455" r="31" fill="#1a181e"/>
+  <text x="400" y="610" text-anchor="middle" font-family="sans-serif" font-size="42" font-weight="700" fill="#f5ebd5">黒ごま香味だれ</text><text x="400" y="725" text-anchor="middle" font-family="sans-serif" font-size="34" font-weight="700" fill="#5a4c35">DEMO 商品</text>
+</svg>

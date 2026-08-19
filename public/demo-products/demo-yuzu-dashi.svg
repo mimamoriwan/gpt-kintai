@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title">
+  <title id="title">DEMO 柚子白だし</title><rect width="800" height="800" rx="90" fill="#fff8df"/>
+  <path d="M300 115h200v80l60 70v410H240V265l60-70z" fill="#fff" stroke="#ddad20" stroke-width="14"/><rect x="282" y="95" width="236" height="80" rx="18" fill="#e1b124"/>
+  <rect x="275" y="305" width="250" height="245" rx="30" fill="#fff3b0"/><circle cx="400" cy="385" r="68" fill="#f1cf32"/><path d="M400 317c35-45 78-25 88 4-38 5-64 17-88 36z" fill="#57a65d"/>
+  <text x="400" y="475" text-anchor="middle" font-family="sans-serif" font-size="42" font-weight="700" fill="#5f4a0c">柚子白だし</text><text x="400" y="735" text-anchor="middle" font-family="sans-serif" font-size="34" font-weight="700" fill="#8c6c11">DEMO／架空商品</text>
+</svg>

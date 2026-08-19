@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title">
+  <title id="title">DEMO 山椒香る米菓</title>
+  <defs><linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f8f0d5"/><stop offset="1" stop-color="#d8ebc1"/></linearGradient></defs>
+  <rect width="800" height="800" rx="90" fill="#eef4ff"/><path d="M170 90h460l55 620H115z" fill="url(#b)" stroke="#335f44" stroke-width="14"/>
+  <rect x="155" y="135" width="490" height="90" rx="24" fill="#1f6d45"/><text x="400" y="195" text-anchor="middle" font-family="sans-serif" font-size="48" font-weight="700" fill="white">DEMO 商品</text>
+  <circle cx="400" cy="415" r="142" fill="#fff9e8" stroke="#b88b3a" stroke-width="12"/><path d="M315 420c60-90 115-110 170-40-40 25-42 90-5 120-80 40-155 1-165-80z" fill="#e8b85b"/>
+  <text x="400" y="620" text-anchor="middle" font-family="sans-serif" font-size="46" font-weight="700" fill="#264934">山椒香る米菓</text><text x="400" y="670" text-anchor="middle" font-family="sans-serif" font-size="27" fill="#526658">架空パッケージ</text>
+</svg>

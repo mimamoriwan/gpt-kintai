@@ -4,6 +4,17 @@ service firebase.storage {
     function signedIn() { return request.auth != null; }
     function role() { return signedIn() && request.auth.token.role is string ? request.auth.token.role : 'employee'; }
     function viewer() { return role() == 'employee_manager' || role() == 'president_viewer'; }
+    // Existing production accounts do not necessarily have an isDemo claim.
+    function demoAccount() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['isDemo'])
+        && request.auth.token.isDemo == true;
+    }
+    function demoDataset() {
+      return demoAccount() && request.auth.token.keys().hasAny(['demoDatasetId'])
+        ? request.auth.token.demoDatasetId
+        : '';
+    }
     function allowedType() {
       return request.resource.contentType.matches('image/(jpeg|png)')
         || request.resource.contentType == 'application/pdf'
@@ -17,7 +28,37 @@ service firebase.storage {
     }
     match /reports/{uid}/{reportId}/{fileName} {
       allow read: if signedIn() && (request.auth.uid == uid || viewer());
-      allow create: if signedIn() && role() != 'president_viewer' && request.auth.uid == uid && allowedType() && allowedSize();
+      allow create: if signedIn() && !demoAccount() && role() != 'president_viewer' && request.auth.uid == uid && allowedType() && allowedSize();
+      allow update, delete: if false;
+    }
+    match /products/{uid}/{observationId}/{fileName} {
+      allow read: if signedIn() && !demoAccount();
+      allow create: if signedIn()
+        && !demoAccount()
+        && role() != 'president_viewer'
+        && request.auth.uid == uid
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size <= 1024 * 1024;
+      allow update, delete: if false;
+    }
+    match /demo/{datasetId}/reports/{uid}/{reportId}/{fileName} {
+      allow read: if viewer() || (demoAccount() && request.auth.uid == uid && demoDataset() == datasetId);
+      allow create: if demoAccount()
+        && role() != 'president_viewer'
+        && request.auth.uid == uid
+        && demoDataset() == datasetId
+        && allowedType()
+        && allowedSize();
+      allow update, delete: if false;
+    }
+    match /demo/{datasetId}/products/{uid}/{observationId}/{fileName} {
+      allow read: if viewer() || (demoAccount() && demoDataset() == datasetId);
+      allow create: if demoAccount()
+        && role() != 'president_viewer'
+        && request.auth.uid == uid
+        && demoDataset() == datasetId
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size <= 1024 * 1024;
       allow update, delete: if false;
     }
   }

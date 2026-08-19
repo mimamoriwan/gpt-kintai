@@ -6,31 +6,166 @@ service cloud.firestore {
     function manager() { return role() == 'employee_manager'; }
     function viewer() { return manager() || role() == 'president_viewer'; }
     function owner(data) { return signedIn() && data.userId == request.auth.uid; }
+    // Existing production accounts predate the demo claim.  Treat a missing
+    // claim as a normal account instead of raising a rules evaluation error.
+    function demoAccount() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['isDemo'])
+        && request.auth.token.isDemo == true;
+    }
+    function demoDataset() {
+      return demoAccount() && request.auth.token.keys().hasAny(['demoDatasetId'])
+        ? request.auth.token.demoDatasetId
+        : '';
+    }
+    function demoData(data) { return data.keys().hasAny(['isDemo']) && data.isDemo == true; }
+    function sameDemoScope(data) {
+      return demoAccount()
+        ? demoData(data)
+          && data.keys().hasAny(['demoDatasetId'])
+          && data.demoDatasetId == demoDataset()
+        : !demoData(data);
+    }
+    function ownerScoped(data) { return owner(data) && sameDemoScope(data); }
+    function validWorkLogAttachments(data) {
+      return !data.keys().hasAny(['attachments'])
+        || (data.attachments is list && data.attachments.size() <= 5);
+    }
 
     match /users/{uid} {
       allow get: if signedIn() && (request.auth.uid == uid || viewer());
       allow list: if viewer();
       allow write: if false;
+      match /workTags/{tagId} {
+        allow get: if viewer() || (signedIn() && request.auth.uid == uid && sameDemoScope(resource.data));
+        // A list query is already confined to the signed-in user's subcollection.
+        // Keep the stricter demo-scope check for direct document reads.
+        allow list: if viewer() || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.userId == request.auth.uid
+          && sameDemoScope(request.resource.data)
+          && request.resource.data.label is string
+          && request.resource.data.label.size() > 0
+          && request.resource.data.label.size() <= 40;
+        allow update: if signedIn() && request.auth.uid == uid
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid
+          && sameDemoScope(resource.data)
+          && sameDemoScope(request.resource.data);
+        allow delete: if signedIn() && request.auth.uid == uid
+          && resource.data.userId == request.auth.uid
+          && sameDemoScope(resource.data);
+      }
     }
     match /categories/{categoryId} {
       allow read: if signedIn();
       allow write: if false;
     }
+    match /companyHolidayOverrides/{date} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /calendarEvents/{eventId} {
+      allow get, list: if signedIn() && sameDemoScope(resource.data);
+      allow write: if false;
+    }
+    match /calendarMembers/{memberId} {
+      // The callable API returns only the display fields allowed for each role.
+      allow read, write: if false;
+    }
     match /attendance/{recordId} {
-      allow get, list: if owner(resource.data) || viewer();
+      allow get: if ownerScoped(resource.data) || viewer();
+      allow list: if owner(resource.data) || viewer();
       allow write: if false;
     }
     match /dailyReports/{reportId} {
-      allow get, list: if owner(resource.data) || viewer();
+      allow get: if ownerScoped(resource.data) || viewer();
+      allow list: if owner(resource.data) || viewer();
       allow write: if false;
       match /revisions/{revisionId} {
-        allow read: if signedIn() && (get(/databases/$(database)/documents/dailyReports/$(reportId)).data.userId == request.auth.uid || viewer());
+        allow get: if viewer() || (signedIn()
+          && get(/databases/$(database)/documents/dailyReports/$(reportId)).data.userId == request.auth.uid
+          && sameDemoScope(get(/databases/$(database)/documents/dailyReports/$(reportId)).data));
+        allow list: if viewer() || (signedIn()
+          && get(/databases/$(database)/documents/dailyReports/$(reportId)).data.userId == request.auth.uid);
         allow write: if false;
       }
     }
-    match /auditEvents/{eventId} {
-      allow get, list: if signedIn() && (resource.data.subjectUserId == request.auth.uid || viewer());
+    match /workLogs/{logId} {
+      allow get: if ownerScoped(resource.data) || viewer();
+      allow list: if owner(resource.data) || viewer();
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && sameDemoScope(request.resource.data)
+        && request.resource.data.workDate is string
+        && request.resource.data.tagLabel is string
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1200
+        && validWorkLogAttachments(request.resource.data);
+      allow update: if signedIn() && ownerScoped(resource.data)
+        && request.resource.data.userId == request.auth.uid
+        && sameDemoScope(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tagId', 'tagLabel', 'text', 'attachments', 'updatedAt'])
+        && request.resource.data.tagLabel is string
+        && request.resource.data.tagLabel.size() > 0
+        && request.resource.data.tagLabel.size() <= 80
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1200
+        && validWorkLogAttachments(request.resource.data);
+      allow delete: if signedIn() && ownerScoped(resource.data);
+    }
+    match /products/{productId} {
+      allow get, list: if viewer() || (signedIn() && sameDemoScope(resource.data));
       allow write: if false;
     }
+    match /productObservations/{observationId} {
+      allow get, list: if viewer() || (signedIn() && sameDemoScope(resource.data));
+      allow write: if false;
+    }
+    match /productRevisions/{revisionId} {
+      allow get, list: if viewer() || (signedIn() && sameDemoScope(resource.data) && resource.data.changedBy == request.auth.uid);
+      allow write: if false;
+    }
+    match /productJanIndex/{jan} {
+      allow read, write: if false;
+    }
+    match /demoProductJanIndex/{id} {
+      allow read, write: if false;
+    }
+    match /demoDatasets/{id} {
+      allow get, list: if viewer() || (demoAccount() && demoDataset() == id);
+      allow write: if false;
+    }
+    match /productAiDailyUsage/{usageId} {
+      allow read, write: if false;
+    }
+    match /productAiDraftUsage/{usageId} {
+      allow read, write: if false;
+    }
+    match /auditEvents/{eventId} {
+      allow get: if viewer() || (signedIn() && resource.data.subjectUserId == request.auth.uid && sameDemoScope(resource.data));
+      allow list: if viewer() || (signedIn() && resource.data.subjectUserId == request.auth.uid);
+      allow write: if false;
+    }
+    match /aiDailyDraftUsage/{usageId} {
+      allow read, write: if false;
+    }
+    match /dutyDefinitions/{id} { allow read: if signedIn(); allow write: if false; }
+    match /employmentBases/{id} { allow get: if ownerScoped(resource.data) || viewer(); allow list: if owner(resource.data) || viewer(); allow write: if false; }
+    match /sourceDocumentReferences/{id} { allow get, list: if viewer(); allow write: if false; }
+    match /weeklyPlans/{id} { allow get: if ownerScoped(resource.data) || viewer(); allow list: if owner(resource.data) || viewer(); allow write: if false; }
+    match /weeklyReports/{id} { allow get: if ownerScoped(resource.data) || viewer(); allow list: if owner(resource.data) || viewer(); allow write: if false; }
+    match /weeklyReportRevisions/{id} { allow get, list: if viewer(); allow write: if false; }
+    match /weeklyMeetings/{id} { allow get: if ownerScoped(resource.data) || viewer(); allow list: if owner(resource.data) || viewer(); allow write: if false; }
+    match /nonWorkingReasons/{id} { allow get: if ownerScoped(resource.data) || viewer(); allow list: if owner(resource.data) || viewer(); allow write: if false; }
+    match /evidenceReferences/{id} {
+      allow get: if viewer() || (signedIn() && resource.data.subjectUserId == request.auth.uid && resource.data.visibility == 'work' && sameDemoScope(resource.data));
+      allow list: if viewer() || (signedIn() && resource.data.subjectUserId == request.auth.uid && resource.data.visibility == 'work');
+      allow write: if false;
+    }
+    match /monthlyEvidencePackages/{id} { allow get: if ownerScoped(resource.data) || viewer(); allow list: if owner(resource.data) || viewer(); allow write: if false; }
+    match /renewalChecklists/{id} { allow get, list: if manager(); allow write: if false; }
   }
 }

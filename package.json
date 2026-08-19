@@ -12,12 +12,17 @@
     "test:rules": "firebase emulators:exec --only firestore,auth,storage 'vitest run --config vitest.rules.config.ts'",
     "emulators": "firebase emulators:start --project demo-kintai --export-on-exit=.firebase-data",
     "seed": "node scripts/seed-emulator.mjs",
+    "demo:data": "node scripts/manage-demo-data.mjs",
+    "demo:data:dry-run": "node scripts/manage-demo-data.mjs --dry-run --project gpt-kintai --confirm-project gpt-kintai",
+    "products:scope:dry-run": "node scripts/backfill-product-demo-scope.mjs --project gpt-kintai --confirm-project gpt-kintai",
+    "calendar:v2:dry-run": "node scripts/migrate-calendar-v2.mjs --project gpt-kintai --confirm-project gpt-kintai",
     "bootstrap:production": "node scripts/bootstrap-production.mjs",
     "functions:build": "npm --prefix functions run build",
     "build:all": "npm run build && npm run functions:build"
   },
   "dependencies": {
     "firebase": "^11.10.0",
+    "heic2any": "^0.0.4",
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

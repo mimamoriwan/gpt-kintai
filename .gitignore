@@ -1,7 +1,12 @@
 node_modules/
 dist/
 functions/lib/
+.pnpm-store/
+**/.node_modules.incomplete-*/
+**/.DS_Store
+tmp/
 firebase-debug.log*
+firebase-debug*.log
 firestore-debug.log*
 ui-debug.log*
 .firebase/
@@ -11,3 +16,4 @@ ui-debug.log*
 coverage/
 *.local
 *.tsbuildinfo
+src/pages/ReportPage\ 2.tsx

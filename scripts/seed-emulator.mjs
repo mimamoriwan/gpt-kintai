@@ -20,6 +20,16 @@ for (const user of users) {
   catch { await auth.createUser({ uid: user.uid, email: user.email, password: user.password, displayName: user.displayName, emailVerified: true }); }
   await auth.setCustomUserClaims(user.uid, { role: user.role });
   await db.doc(`users/${user.uid}`).set({ uid: user.uid, email: user.email, displayName: user.displayName, role: user.role, locale: user.locale, active: true, createdAt: FieldValue.serverTimestamp() }, { merge: true });
+  await db.doc(`calendarMembers/real_${user.uid}`).set({
+    displayName: user.displayName,
+    linkedUserId: user.uid,
+    roleHint: user.role,
+    active: true,
+    order: (users.findIndex((item) => item.uid === user.uid) + 1) * 10,
+    isDemo: false,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
 }
 
 const categories = [
