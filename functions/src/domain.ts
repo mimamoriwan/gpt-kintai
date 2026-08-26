@@ -191,6 +191,7 @@ export const productObservationInputSchema = z.object({
   sourceDetail: optionalProductText(2000),
   reasonOriginal: optionalProductText(5000),
   reasonLanguage: z.enum(["ja", "zh-CN"]),
+  estimateRequested: z.boolean().optional().default(false),
   addToWorkMemo: z.boolean().optional().default(false),
   facts: productFactsSchema
 });

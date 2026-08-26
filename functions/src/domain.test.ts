@@ -174,6 +174,7 @@ describe("product candidate validation", () => {
       facts: { name: "辣椒酱", jan: "", makerBrand: "", ingredients: "" }
     });
     expect(parsed.addToWorkMemo).toBe(false);
+    expect(parsed.estimateRequested).toBe(false);
     expect(parsed.createNewWithoutJan).toBe(false);
   });
 

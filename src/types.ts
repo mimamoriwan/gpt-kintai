@@ -470,7 +470,6 @@ export interface GeneratedReportDraft extends ReportFields {
   aiMeta: {
     cached: boolean;
     successfulGenerations: number;
-    maxSuccessfulGenerations: number;
     analyzedAttachmentCount: number;
     analyzedAttachmentNames?: string[];
     skippedLinkCount: number;
@@ -501,6 +500,11 @@ export interface ProductFacts {
 export interface Product extends ProductFacts, DemoRecordMetadata {
   id: string;
   representativePhoto?: ProductPhoto;
+  /** Current shared estimate-request state for this product. */
+  estimateRequested?: boolean;
+  estimateRequestUpdatedBy?: string;
+  estimateRequestUpdatedByName?: string;
+  estimateRequestUpdatedAt?: Timestamp;
   status: ProductStatus;
   observationCount: number;
   latestObserverId: string;
@@ -522,6 +526,8 @@ export interface ProductObservation extends DemoRecordMetadata {
   reasonOriginal: string;
   reasonLanguage: ReportLanguage;
   reasonJapanese: string;
+  /** Whether this registration included an estimate request. */
+  estimateRequested?: boolean;
   translationStatus: TranslationStatus;
   translationAttempts: number;
   photos: ProductPhoto[];

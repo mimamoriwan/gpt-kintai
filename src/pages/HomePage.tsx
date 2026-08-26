@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Building2, CalendarOff, CheckCircle2, ChevronDown, Clock3, Home as HomeIcon, MapPin, Plane } from "lucide-react";
 import { useAuth } from "../auth";
 import { SharedCalendar } from "../components/SharedCalendar";
 import { useI18n } from "../i18n";
 import { formatDate, formatTime, todayJst } from "../lib/format";
 import { resolveCompanyDay } from "../lib/companyCalendar";
-import { clockIn, clockOut, correctAttendance } from "../services/api";
-import type { AttendanceRecord, CompanyHolidayOverride, DailyReport, WorkMode } from "../types";
+import { MONTHLY_AI_GENERATION_ALERT_THRESHOLD, aiApiGenerationCount, monthlyAiUsageEvents } from "../lib/aiUsage";
+import { clockIn, clockOut, correctAttendance, watchAiUsageEvents } from "../services/api";
+import type { AttendanceRecord, AuditEvent, CompanyHolidayOverride, DailyReport, WorkMode } from "../types";
 
 export function HomePage({ attendance, reports, holidayOverrides, onReport, notify }: { attendance: AttendanceRecord[]; reports: DailyReport[]; holidayOverrides: CompanyHolidayOverride[]; onReport: () => void; notify: (type: "success" | "error", message: string) => void }) {
   const { profile } = useAuth();
@@ -23,8 +24,16 @@ export function HomePage({ attendance, reports, holidayOverrides, onReport, noti
   const [manualClockInOpen, setManualClockInOpen] = useState(false);
   const [manualStartTime, setManualStartTime] = useState("");
   const [manualStartReason, setManualStartReason] = useState("");
+  const [aiUsageEvents, setAiUsageEvents] = useState<AuditEvent[]>([]);
   const today = todayJst();
   const presidentHome = profile?.role === "president_viewer";
+  const managerHome = profile?.role === "employee_manager";
+  useEffect(() => {
+    if (!managerHome) return;
+    return watchAiUsageEvents(setAiUsageEvents);
+  }, [managerHome]);
+  const monthlyAiRuns = useMemo(() => aiApiGenerationCount(monthlyAiUsageEvents(aiUsageEvents, today.slice(0, 7))), [aiUsageEvents, today]);
+  const showAiUsageAlert = managerHome && monthlyAiRuns >= MONTHLY_AI_GENERATION_ALERT_THRESHOLD;
   const active = attendance.find((item) => item.userId === profile?.uid && item.status === "active");
   const staleActive = active && active.workDate < today ? active : undefined;
   const todayRecord = attendance.find((item) => item.userId === profile?.uid && item.workDate === today);
@@ -108,6 +117,7 @@ export function HomePage({ attendance, reports, holidayOverrides, onReport, noti
   return (
     <div className="page home-page">
       <div className="page-heading"><div><span className="eyebrow">{t("today")}</span><h1>{locale === "ja" ? `${profile?.displayName}さん、お疲れさまです` : `${profile?.displayName}，辛苦了`}</h1><p>{formatDate(today, locale === "ja" ? "ja-JP" : "zh-CN")}</p></div></div>
+      {showAiUsageAlert && <section className="card home-ai-usage-alert" role="alert"><span className="modal-icon warning"><AlertTriangle size={24} /></span><span><strong>{locale === "ja" ? `今月のAI生成が${monthlyAiRuns}回になりました` : `本月AI生成已达到${monthlyAiRuns}次`}</strong><small>{locale === "ja" ? "月50回の確認基準に達しています。管理画面の「日報AIの利用状況」で、利用者・日時・トークン数を確認してください。" : "已达到每月50次的检查标准。请在管理页面的“日报AI使用情况”中查看用户、时间和Token数。"}</small></span></section>}
       <div className={`home-grid ${presidentHome ? "president-home-grid" : ""}`}>
         {!presidentHome && <section className={`card attendance-hero ${active || todayRecord?.endedAt ? "is-compact" : ""}`}>
           {staleActive ? <div className="missed-clockout-warning">
@@ -146,7 +156,7 @@ export function HomePage({ attendance, reports, holidayOverrides, onReport, noti
           {companyDay.isHoliday && !hasTodayWork && !hasReport && <div className="notice-card holiday"><CalendarOff size={22} /><span><strong>{locale === "ja" ? "会社休日（予定）" : "公司休息日（计划）"}</strong><small>{locale === "ja" ? "未打刻・日報未提出の警告対象外です" : "不显示漏打卡或未交日报提醒"}</small></span></div>}
           {hasReport && <div className="notice-card success"><CheckCircle2 size={22} /><span><strong>{t("submitted")}</strong><small>{locale === "ja" ? "本日の日報は記録済みです" : "今天的日报已记录"}</small></span></div>}
         </aside>}
-        <SharedCalendar holidayOverrides={holidayOverrides} notify={notify} />
+        <SharedCalendar attendance={attendance} reports={reports} holidayOverrides={holidayOverrides} notify={notify} />
       </div>
       {confirmingClockOut && active && !staleActive && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setConfirmingClockOut(false); }}>
         <section className="modal clock-out-modal" role="dialog" aria-modal="true" aria-labelledby="clock-out-title">

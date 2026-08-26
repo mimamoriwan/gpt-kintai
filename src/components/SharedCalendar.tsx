@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, Clock3, LoaderCircle, Pencil, Plane, Plus, Trash2, Users } from "lucide-react";
+import { BriefcaseBusiness, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, LoaderCircle, Pencil, Plane, Plus, Trash2, TriangleAlert, Users } from "lucide-react";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
 import { CALENDAR_MEMBER_COLORS, calendarGridDays, calendarGridRange, calendarMemberColorMap, isEveryoneCalendarEvent, shiftCalendarMonth, sortCalendarEvents } from "../lib/calendar";
 import { resolveCompanyDay } from "../lib/companyCalendar";
 import { formatDate, todayJst } from "../lib/format";
 import { deleteCalendarEvent, getCalendarMembers, saveCalendarEvent, watchCalendarEvents } from "../services/api";
-import type { CalendarEvent, CalendarEventInput, CalendarEventType, CalendarMember, CompanyHolidayOverride } from "../types";
+import type { AttendanceRecord, CalendarEvent, CalendarEventInput, CalendarEventType, CalendarMember, CompanyHolidayOverride, DailyReport } from "../types";
 
 type Notify = (type: "success" | "error", message: string) => void;
 type MemberStyle = CSSProperties & { "--member-color": string; "--member-soft": string };
 
-export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides: CompanyHolidayOverride[]; notify: Notify }) {
+export function SharedCalendar({ attendance, reports, holidayOverrides, notify }: {
+  attendance: AttendanceRecord[];
+  reports: DailyReport[];
+  holidayOverrides: CompanyHolidayOverride[];
+  notify: Notify;
+}) {
   const { profile } = useAuth();
   const { locale } = useI18n();
   const today = todayJst();
@@ -22,6 +27,9 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [editor, setEditor] = useState<{ date: string; event?: CalendarEvent } | null>(null);
+  const showReportStatus = profile?.role !== "president_viewer";
+  const ownReportDates = useMemo(() => new Set(reports.filter((item) => item.userId === profile?.uid).map((item) => item.reportDate)), [profile?.uid, reports]);
+  const ownAttendanceDates = useMemo(() => new Set(attendance.filter((item) => item.userId === profile?.uid).map((item) => item.workDate)), [attendance, profile?.uid]);
   const days = useMemo(() => calendarGridDays(viewMonth), [viewMonth]);
   const range = useMemo(() => calendarGridRange(viewMonth), [viewMonth]);
   const eventsByDate = useMemo(() => {
@@ -29,6 +37,14 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
     for (const event of sortCalendarEvents(events)) grouped.set(event.date, [...(grouped.get(event.date) || []), event]);
     return grouped;
   }, [events]);
+  const ownCalendarParticipantIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (profile?.uid) ids.add(profile.uid);
+    for (const member of members) {
+      if (member.isCurrentUser || member.linkedUserId === profile?.uid) ids.add(member.id);
+    }
+    return ids;
+  }, [members, profile?.uid]);
   const selectedEvents = eventsByDate.get(selectedDate) || [];
   const allMemberIds = useMemo(() => [
     ...members.map((member) => member.id),
@@ -79,7 +95,18 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
   }
   function returnToToday() { setViewMonth(today.slice(0, 7)); setSelectedDate(today); }
 
+  function reportStatus(date: string): "submitted" | "missing" | null {
+    if (date > today || !showReportStatus || loadingMembers || loadingEvents) return null;
+    const hasAttendance = ownAttendanceDates.has(date);
+    const hasOwnLeave = (eventsByDate.get(date) || []).some((event) => event.eventType === "leave"
+      && event.participants.some((participant) => ownCalendarParticipantIds.has(participantId(participant))));
+    const companyDay = resolveCompanyDay(date, holidayOverrides.find((item) => item.date === date));
+    if (hasOwnLeave || (!hasAttendance && companyDay.isHoliday)) return null;
+    return ownReportDates.has(date) ? "submitted" : "missing";
+  }
+
   const selectedCompanyDay = resolveCompanyDay(selectedDate, holidayOverrides.find((item) => item.date === selectedDate));
+  const selectedReportStatus = reportStatus(selectedDate);
 
   return <>
     <section className="card shared-calendar-card" aria-labelledby="shared-calendar-title">
@@ -101,6 +128,10 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
           <span className="calendar-type-chip business_trip"><Plane size={13} />{eventTypeLabel("business_trip", locale)}</span>
           <span className="calendar-type-chip leave"><LeaveMark />{eventTypeLabel("leave", locale)}</span>
         </div>
+        {showReportStatus && <div className="calendar-report-legend" aria-label={locale === "ja" ? "日報の提出状況" : "日报提交状态"}>
+          <span className="calendar-report-status submitted"><CheckCircle2 size={12} />{locale === "ja" ? "日報提出済み" : "日报已提交"}</span>
+          <span className="calendar-report-status missing"><TriangleAlert size={12} />{locale === "ja" ? "日報未提出" : "日报未提交"}</span>
+        </div>}
       </div>
 
       <div className="shared-calendar-layout">
@@ -112,21 +143,28 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
               const participantIds = [...new Set(dayEvents.flatMap((event) => event.participants.map(participantId)))];
               const eventTypes = [...new Set(dayEvents.map((event) => event.eventType || "work"))];
               const companyDay = resolveCompanyDay(day.date, holidayOverrides.find((item) => item.date === day.date));
+              const dailyReportStatus = day.inCurrentMonth ? reportStatus(day.date) : null;
               const namedHoliday = companyDay.isHoliday && companyDay.source !== "weekend";
               const hasEveryoneEvent = dayEvents.some(isEveryoneEvent);
               const ariaEventCount = dayEvents.length ? (locale === "ja" ? `、予定${dayEvents.length}件` : `，${dayEvents.length}项日程`) : "";
+              const ariaReportStatus = dailyReportStatus === "submitted"
+                ? (locale === "ja" ? "、日報提出済み" : "，日报已提交")
+                : dailyReportStatus === "missing" ? (locale === "ja" ? "、日報未提出" : "，日报未提交") : "";
               return <button type="button" key={day.date}
                 className={`calendar-day ${day.inCurrentMonth ? "" : "outside"} ${companyDay.isHoliday ? "holiday" : ""} ${day.date === today ? "today" : ""} ${day.date === selectedDate ? "selected" : ""}`}
-                aria-label={`${formatDate(day.date, locale === "ja" ? "ja-JP" : "zh-CN")}${namedHoliday ? `、${companyDay.label}` : ""}${ariaEventCount}`}
+                aria-label={`${formatDate(day.date, locale === "ja" ? "ja-JP" : "zh-CN")}${namedHoliday ? `、${companyDay.label}` : ""}${ariaEventCount}${ariaReportStatus}`}
                 aria-pressed={day.date === selectedDate} onClick={() => selectDay(day.date)}>
                 <span className="calendar-day-number">{day.dayNumber}</span>
+                {dailyReportStatus && <span className={`calendar-day-report-status ${dailyReportStatus}`} aria-hidden="true">
+                  {dailyReportStatus === "submitted" ? <><CheckCircle2 size={10} />{locale === "ja" ? "済" : "已交"}</> : <><TriangleAlert size={10} />{locale === "ja" ? "未" : "未交"}</>}
+                </span>}
                 {namedHoliday && <small className="calendar-holiday-name">{companyDay.label}</small>}
                 <span className="calendar-day-type-markers" aria-hidden="true">{eventTypes.map((type) => <i className={`calendar-day-type ${type}`} key={type}>{type === "business_trip" ? <Plane size={9} /> : type === "leave" ? "休" : <BriefcaseBusiness size={9} />}</i>)}</span>
                 <span className="calendar-day-markers" aria-hidden="true">
                   {hasEveryoneEvent && <i className="calendar-everyone-marker"><Users size={10} />{locale === "ja" ? "全員" : "全员"}</i>}
                   {participantIds.slice(0, 3).map((memberId) => <i className="calendar-person-dot" style={memberStyle(memberId)} key={memberId} />)}
                 </span>
-                {dayEvents.length > 1 && <span className="calendar-event-count" aria-hidden="true">{dayEvents.length}</span>}
+                {dayEvents.length > 1 && <span className={`calendar-event-count ${dailyReportStatus ? "with-report-status" : ""}`} aria-hidden="true">{dayEvents.length}</span>}
               </button>;
             })}
           </div>
@@ -135,7 +173,7 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
 
         <aside className="calendar-day-panel">
           <div className="calendar-selected-heading">
-            <div><small>{locale === "ja" ? "選択した日" : "已选日期"}</small><strong>{formatDate(selectedDate, locale === "ja" ? "ja-JP" : "zh-CN")}</strong>{selectedCompanyDay.isHoliday && <span className="calendar-holiday-chip">{selectedCompanyDay.label}</span>}</div>
+            <div><small>{locale === "ja" ? "選択した日" : "已选日期"}</small><strong>{formatDate(selectedDate, locale === "ja" ? "ja-JP" : "zh-CN")}</strong><span className="calendar-selected-statuses">{selectedCompanyDay.isHoliday && <span className="calendar-holiday-chip">{selectedCompanyDay.label}</span>}{selectedReportStatus && <span className={`calendar-report-status ${selectedReportStatus}`}>{selectedReportStatus === "submitted" ? <CheckCircle2 size={12} /> : <TriangleAlert size={12} />}{selectedReportStatus === "submitted" ? (locale === "ja" ? "日報提出済み" : "日报已提交") : (locale === "ja" ? "日報未提出" : "日报未提交")}</span>}</span></div>
             <button className="button primary calendar-add-button" type="button" disabled={loadingMembers || members.length === 0} onClick={() => setEditor({ date: selectedDate })}><Plus size={17} />{locale === "ja" ? "予定を追加" : "添加日程"}</button>
           </div>
           <div className="calendar-day-events">
@@ -152,7 +190,9 @@ export function SharedCalendar({ holidayOverrides, notify }: { holidayOverrides:
               {event.createdBy === profile.uid && <button type="button" className="calendar-edit-button" aria-label={locale === "ja" ? `${calendarEventTitle(event, locale)}を編集` : `编辑${calendarEventTitle(event, locale)}`} onClick={() => setEditor({ date: event.date, event })}><Pencil size={16} /></button>}
             </article>)}
           </div>
-          <p className="calendar-record-note">{locale === "ja" ? "休みを含む予定は共有メンバー全員に表示されます。勤怠実績・有給残数・日報には反映されません。" : "包括休息在内的日程会向所有成员显示，不会计入考勤、带薪休假余额或日报。"}</p>
+          <p className="calendar-record-note">{showReportStatus
+            ? (locale === "ja" ? "本人が「休み」を申請した日は、日報の提出状況を表示しません。予定は勤怠実績・有給残数には反映されません。" : "本人申请“休息”的日期不显示日报提交状态。日程不会计入考勤记录或带薪休假余额。")
+            : (locale === "ja" ? "休みを含む予定は共有メンバー全員に表示されます。予定は勤怠実績・有給残数には反映されません。" : "包括休息在内的日程会向所有成员显示，日程不会计入考勤记录或带薪休假余额。")}</p>
         </aside>
       </div>
     </section>

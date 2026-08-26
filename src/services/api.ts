@@ -25,6 +25,7 @@ import { compressProductImage, fileToDataUrl } from "../lib/product";
 import type {
   Attachment,
   AttendanceRecord,
+  AuditEvent,
   CalendarEvent,
   CalendarEventInput,
   CalendarMember,
@@ -91,6 +92,17 @@ export function watchReports(
   return onSnapshot(query(collection(db, "dailyReports"), ...constraints), (snapshot) => {
     callback(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DailyReport));
   }, (error) => onError?.(error));
+}
+
+export function watchAiUsageEvents(
+  callback: (rows: AuditEvent[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    query(collection(db, "auditEvents"), where("entityType", "==", "daily_report_draft")),
+    (snapshot) => callback(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AuditEvent)),
+    (error) => onError?.(error)
+  );
 }
 
 export function watchProducts(
@@ -439,6 +451,7 @@ export async function saveProductCandidate(input: {
   sourceDetail: string;
   reasonOriginal: string;
   reasonLanguage: ReportLanguage;
+  estimateRequested: boolean;
   addToWorkMemo: boolean;
   existingProductId?: string;
   createNewWithoutJan?: boolean;
@@ -502,6 +515,11 @@ export async function reviewProductObservation(observationId: string): Promise<v
 export async function setProductStatus(productId: string, status: ProductStatus): Promise<void> {
   const call = httpsCallable<{ productId: string; status: ProductStatus }, { ok: true }>(functions, "setProductStatus");
   await call({ productId, status });
+}
+
+export async function setProductEstimateRequested(productId: string, estimateRequested: boolean): Promise<void> {
+  const call = httpsCallable<{ productId: string; estimateRequested: boolean }, { ok: true }>(functions, "setProductEstimateRequested");
+  await call({ productId, estimateRequested });
 }
 
 export async function updateProductFacts(productId: string, facts: ProductFacts, reason: string): Promise<void> {

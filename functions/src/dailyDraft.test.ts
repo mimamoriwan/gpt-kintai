@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_DAILY_DRAFT_BYTES,
+  MAX_DAILY_DRAFT_CACHE_ENTRIES,
+  appendDailyDraftCache,
   assertDailyDraftAttachmentLimits,
-  canGenerateDailyDraft,
   findDailyDraftCache,
   prepareDailyDraftSource
 } from "./dailyDraft.js";
@@ -56,10 +57,16 @@ describe("daily report draft sources", () => {
     expect(findDailyDraftCache([cached], "different")).toBeNull();
   });
 
-  it("allows at most two successful API generations", () => {
-    expect(canGenerateDailyDraft(0)).toBe(true);
-    expect(canGenerateDailyDraft(1)).toBe(true);
-    expect(canGenerateDailyDraft(2)).toBe(false);
-    expect(canGenerateDailyDraft(3)).toBe(false);
+  it("keeps a bounded cache without limiting how many new drafts can be generated", () => {
+    const entries = Array.from({ length: MAX_DAILY_DRAFT_CACHE_ENTRIES + 3 }, (_, index) => ({
+      contentHash: `hash-${index}`,
+      draft: { category: `category-${index}` },
+      analyzedAttachmentCount: 0,
+      skippedLinkCount: 0,
+      generatedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`
+    }));
+    const cache = entries.reduce((current, entry) => appendDailyDraftCache(current, entry), [] as typeof entries);
+    expect(cache).toHaveLength(MAX_DAILY_DRAFT_CACHE_ENTRIES);
+    expect(cache.at(-1)?.contentHash).toBe(`hash-${entries.length - 1}`);
   });
 });

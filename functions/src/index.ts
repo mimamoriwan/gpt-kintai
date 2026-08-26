@@ -11,7 +11,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { assertManualClockInTime, assertTimeRange, calendarDateRange, calendarEventInputSchema, clockInInputSchema, csvEscape, evidenceCategories, evidenceVisibilities, formatTaggedActivities, generatedReportDraftSchema, groupWorkLogEntries, isValidJan, jstDate, nonWorkingReasonTypes, normalizeJan, parseIsoDateTime, productFactsSchema, productImageInputSchema, productObservationInputSchema, productStatuses, reportDraftInputSchema, reportFieldsSchema, reportInputSchema, roles, weeklyPlanInputSchema, weeklyReportSectionsSchema, weeklyReportStatuses, weekRange } from "./domain.js";
 import { resolveCompanyDay } from "./companyCalendar.js";
-import { MAX_DAILY_DRAFT_BYTES, MAX_DAILY_DRAFT_FILES, MAX_DAILY_DRAFT_SUCCESSES, assertDailyDraftAttachmentLimits, canGenerateDailyDraft, findDailyDraftCache, prepareDailyDraftSource, type DailyDraftCacheEntry, type DailyDraftFileSource } from "./dailyDraft.js";
+import { MAX_DAILY_DRAFT_BYTES, MAX_DAILY_DRAFT_FILES, appendDailyDraftCache, assertDailyDraftAttachmentLimits, findDailyDraftCache, prepareDailyDraftSource, type DailyDraftCacheEntry, type DailyDraftFileSource } from "./dailyDraft.js";
 
 initializeApp();
 setGlobalOptions({ region: "asia-northeast1", maxInstances: 5, memory: "256MiB" });
@@ -348,6 +348,7 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
     const groups = groupWorkLogEntries(source.memoSources.map((item) => ({ tag: item.tag, text: item.text })));
     const contentHash = createHash("sha256").update(source.fingerprintJson).digest("hex");
     usageRef = firestore.doc(`aiDailyDraftUsage/${auth.uid}_${input.reportDate}`);
+    const cacheAuditRef = firestore.collection("auditEvents").doc();
     lockToken = randomBytes(16).toString("hex");
     const lockExpiresAt = Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
     const decision = await firestore.runTransaction(async (transaction) => {
@@ -357,6 +358,21 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
       if (cached) {
         const parsed = generatedReportDraftSchema.safeParse(cached.draft);
         if (parsed.success) {
+          transaction.create(cacheAuditRef, {
+            actorId: auth.uid,
+            subjectUserId: auth.uid,
+            entityType: "daily_report_draft",
+            entityId: `${auth.uid}_${input.reportDate}`,
+            action: "ai_cache_reused",
+            after: {
+              reportDate: input.reportDate,
+              contentHash,
+              analyzedAttachmentCount: Number(cached.analyzedAttachmentCount || 0),
+              skippedLinkCount: source.skippedLinkCount
+            },
+            createdAt: FieldValue.serverTimestamp(),
+            ...demoFields(profile)
+          });
           return {
             kind: "cached" as const,
             draft: parsed.data,
@@ -367,9 +383,6 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
         }
       }
       const successfulGenerations = Number(data.successfulGenerations || 0);
-      if (!canGenerateDailyDraft(successfulGenerations)) {
-        throw new HttpsError("resource-exhausted", "この日の日報はAIで2回作成済みです。以後は下書きを手入力で修正してください。");
-      }
       const activeLockUntil = data.lockExpiresAt instanceof Timestamp ? data.lockExpiresAt.toMillis() : 0;
       if (data.lockToken && activeLockUntil > Date.now()) {
         throw new HttpsError("aborted", "日報の下書きを作成中です。完了までそのままお待ちください。");
@@ -392,7 +405,6 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
         aiMeta: {
           cached: true,
           successfulGenerations: decision.successfulGenerations,
-          maxSuccessfulGenerations: MAX_DAILY_DRAFT_SUCCESSES,
           analyzedAttachmentCount: decision.analyzedAttachmentCount,
           analyzedAttachmentNames: source.files.map((item) => item.name),
           skippedLinkCount: decision.skippedLinkCount
@@ -480,16 +492,10 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
         throw new HttpsError("aborted", "日報作成の処理状態が更新されました。もう一度画面を確認してください。");
       }
       const currentCount = Number(data.successfulGenerations || 0);
-      if (!canGenerateDailyDraft(currentCount)) {
-        throw new HttpsError("resource-exhausted", "この日の日報はAIで2回作成済みです。");
-      }
-      const cachedResults = (Array.isArray(data.cachedResults) ? data.cachedResults : [])
-        .filter((item) => item && typeof item === "object" && item.contentHash !== contentHash)
-        .slice(-(MAX_DAILY_DRAFT_SUCCESSES - 1));
       const nextCount = currentCount + 1;
       transaction.set(usageRef!, {
         successfulGenerations: nextCount,
-        cachedResults: [...cachedResults, cacheEntry],
+        cachedResults: appendDailyDraftCache(data.cachedResults, cacheEntry),
         lastContentHash: contentHash,
         lastGeneratedAt: FieldValue.serverTimestamp(),
         totalInputTokens: Number(data.totalInputTokens || 0) + Number(response.usage?.input_tokens || 0),
@@ -508,6 +514,7 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
         entityId: `${auth.uid}_${input.reportDate}`,
         action: "ai_generated",
         after: {
+          reportDate: input.reportDate,
           contentHash,
           successfulGeneration: nextCount,
           model: "gpt-5.6-luna",
@@ -527,7 +534,6 @@ export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [o
       aiMeta: {
         cached: false,
         successfulGenerations,
-        maxSuccessfulGenerations: MAX_DAILY_DRAFT_SUCCESSES,
         analyzedAttachmentCount: loadedFiles.length,
         analyzedAttachmentNames: loadedFiles.map((item) => item.name),
         skippedLinkCount: source.skippedLinkCount
@@ -1026,11 +1032,12 @@ export const saveProductCandidate = onCall({ ...callableOptions, secrets: [openA
       if (existing.exists) {
         transaction.update(productRef, {
           observationCount: FieldValue.increment(1), latestObserverId: auth.uid, latestObserverName: profile.displayName,
-          latestDiscoveredAt: input.discoveredDate, updatedAt: now
+          latestDiscoveredAt: input.discoveredDate, updatedAt: now,
+          ...(input.estimateRequested ? { estimateRequested: true } : {})
         });
       } else {
         transaction.create(productRef, {
-          ...facts, status: "new", observationCount: 1, latestObserverId: auth.uid, latestObserverName: profile.displayName,
+          ...facts, estimateRequested: input.estimateRequested, status: "new", observationCount: 1, latestObserverId: auth.uid, latestObserverName: profile.displayName,
           latestDiscoveredAt: input.discoveredDate, createdBy: auth.uid, createdAt: now, updatedAt: now,
           ...productScopeFields(profile)
         });
@@ -1039,7 +1046,7 @@ export const saveProductCandidate = onCall({ ...callableOptions, secrets: [openA
         productId: productRef.id, userId: auth.uid, userName: profile.displayName, discoveredDate: input.discoveredDate,
         source: input.source, sourceDetail: input.sourceDetail, reasonOriginal: input.reasonOriginal,
         reasonLanguage: input.reasonLanguage, reasonJapanese, translationStatus, translationAttempts: input.reasonLanguage === "zh-CN" && input.reasonOriginal ? 1 : 0,
-        photos: [], reviewStatus: "unreviewed", revision: 1,
+        estimateRequested: input.estimateRequested, photos: [], reviewStatus: "unreviewed", revision: 1,
         createdAt: now, updatedAt: now, ...demoFields(profile)
       });
       return productRef.id;
@@ -1133,6 +1140,44 @@ export const setProductStatus = onCall(callableOptions, async (request) => {
     const ref = firestore.doc(`products/${input.productId}`);
     if (!(await ref.get()).exists) throw new HttpsError("not-found", "商品がありません。");
     await ref.update({ status: input.status, updatedAt: FieldValue.serverTimestamp() });
+    return { ok: true };
+  } catch (error) { return toHttpsError(error); }
+});
+
+export const setProductEstimateRequested = onCall(callableOptions, async (request) => {
+  try {
+    const auth = requireAuth(request.auth);
+    if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
+    const profile = await userProfile(auth.uid);
+    const input = z.object({ productId: z.string().min(1), estimateRequested: z.boolean() }).parse(request.data);
+    const ref = firestore.doc(`products/${input.productId}`);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) throw new HttpsError("not-found", "商品がありません。");
+    const before = snapshot.data()!;
+    requireSameDemoScope(profile, before);
+    if (Boolean(before.estimateRequested) === input.estimateRequested) return { ok: true };
+    const now = FieldValue.serverTimestamp();
+    const batch = firestore.batch();
+    batch.update(ref, {
+      estimateRequested: input.estimateRequested,
+      estimateRequestUpdatedBy: auth.uid,
+      estimateRequestUpdatedByName: profile.displayName,
+      estimateRequestUpdatedAt: now,
+      updatedAt: now
+    });
+    const audit = firestore.collection("auditEvents").doc();
+    batch.create(audit, {
+      actorId: auth.uid,
+      subjectUserId: auth.uid,
+      entityType: "product",
+      entityId: ref.id,
+      action: input.estimateRequested ? "estimate_requested" : "estimate_request_cleared",
+      before: { estimateRequested: Boolean(before.estimateRequested) },
+      after: { estimateRequested: input.estimateRequested },
+      createdAt: now,
+      ...demoFieldsFromRecord(before)
+    });
+    await batch.commit();
     return { ok: true };
   } catch (error) { return toHttpsError(error); }
 });

@@ -140,7 +140,6 @@ describe("ReportPage work log attachments", () => {
       aiMeta: {
         cached: true,
         successfulGenerations: 1,
-        maxSuccessfulGenerations: 2,
         analyzedAttachmentCount: 1,
         analyzedAttachmentNames: ["資料.pdf"],
         skippedLinkCount: 0

@@ -1,6 +1,6 @@
 export const MAX_DAILY_DRAFT_FILES = 10;
 export const MAX_DAILY_DRAFT_BYTES = 20 * 1024 * 1024;
-export const MAX_DAILY_DRAFT_SUCCESSES = 2;
+export const MAX_DAILY_DRAFT_CACHE_ENTRIES = 10;
 
 export type DailyDraftAttachmentInput = {
   id?: unknown;
@@ -124,13 +124,15 @@ export function assertDailyDraftAttachmentLimits(files: DailyDraftFileSource[]):
   }
 }
 
-export function canGenerateDailyDraft(successfulGenerations: number): boolean {
-  return Number.isFinite(successfulGenerations)
-    && Math.max(0, Math.floor(successfulGenerations)) < MAX_DAILY_DRAFT_SUCCESSES;
-}
-
 export function findDailyDraftCache<T>(value: unknown, contentHash: string): DailyDraftCacheEntry<T> | null {
   if (!Array.isArray(value)) return null;
   const match = value.find((item) => item && typeof item === "object" && (item as { contentHash?: unknown }).contentHash === contentHash);
   return match ? match as DailyDraftCacheEntry<T> : null;
+}
+
+export function appendDailyDraftCache<T>(value: unknown, entry: DailyDraftCacheEntry<T>): DailyDraftCacheEntry<T>[] {
+  const previous = Array.isArray(value)
+    ? value.filter((item): item is DailyDraftCacheEntry<T> => Boolean(item && typeof item === "object" && (item as { contentHash?: unknown }).contentHash !== entry.contentHash))
+    : [];
+  return [...previous.slice(-(MAX_DAILY_DRAFT_CACHE_ENTRIES - 1)), entry];
 }

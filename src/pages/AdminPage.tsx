@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Archive, CalendarOff, CalendarRange, Check, Clock3, Download, Eye, FileText, Filter, Link2, LoaderCircle, PackageSearch, Paperclip, Plus, Trash2, UserRoundPlus, UsersRound } from "lucide-react";
+import { AlertTriangle, Archive, CalendarOff, CalendarRange, Check, Clock3, Download, Eye, FileText, Filter, Link2, LoaderCircle, PackageSearch, Paperclip, Plus, Sparkles, Trash2, UserRoundPlus, UsersRound } from "lucide-react";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
 import { elapsedMinutes, formatElapsed, formatTime, monthRange, todayJst } from "../lib/format";
 import { resolveCompanyDay } from "../lib/companyCalendar";
-import { deactivateUser, exportMonth, getCalendarMembers, inviteUser, markReviewed, removeCompanyHolidayOverride, saveCalendarMember, saveCategory, saveCompanyHolidayOverride, watchWorkLogs } from "../services/api";
-import type { AttendanceRecord, CalendarMemberInput, Category, CompanyDayType, CompanyHolidayOverride, DailyReport, Product, ProductObservation, ProductStatus, Role, UserProfile, WorkLogEntry } from "../types";
+import { MONTHLY_AI_GENERATION_ALERT_THRESHOLD, aiApiGenerationCount, aiCacheReuseCount, aiUsageNumber, aiUsageReportDate, monthlyAiUsageEvents, summarizeAiUsage } from "../lib/aiUsage";
+import { deactivateUser, exportMonth, getCalendarMembers, inviteUser, markReviewed, removeCompanyHolidayOverride, saveCalendarMember, saveCategory, saveCompanyHolidayOverride, watchAiUsageEvents, watchWorkLogs } from "../services/api";
+import type { AttendanceRecord, AuditEvent, CalendarMemberInput, Category, CompanyDayType, CompanyHolidayOverride, DailyReport, Product, ProductObservation, ProductStatus, Role, UserProfile, WorkLogEntry } from "../types";
 
 export function AdminPage({ attendance, reports, users, categories, holidayOverrides, products, productObservations, notify }: {
   attendance: AttendanceRecord[];
@@ -27,12 +28,23 @@ export function AdminPage({ attendance, reports, users, categories, holidayOverr
   const [showCalendar, setShowCalendar] = useState(false);
   const [showCalendarMembers, setShowCalendarMembers] = useState(false);
   const [reviewingReport, setReviewingReport] = useState<DailyReport | null>(null);
+  const [aiUsageEvents, setAiUsageEvents] = useState<AuditEvent[]>([]);
   const isManager = profile?.role === "employee_manager";
+  useEffect(() => {
+    if (!isManager) return;
+    return watchAiUsageEvents(setAiUsageEvents);
+  }, [isManager]);
   const filteredAttendance = useMemo(() => attendance.filter((item) => item.workDate >= range.from && item.workDate <= range.to && (!selectedUser || item.userId === selectedUser)), [attendance, range.from, range.to, selectedUser]);
   const filteredReports = useMemo(() => reports.filter((item) => item.reportDate >= range.from && item.reportDate <= range.to && (!selectedUser || item.userId === selectedUser)), [range.from, range.to, reports, selectedUser]);
   const totalMinutes = filteredAttendance.reduce((sum, item) => sum + elapsedMinutes(item.startedAt, item.endedAt), 0);
   const attachmentBytes = filteredReports.reduce((sum, report) => sum + (report.attachments || []).reduce((itemSum, item) => itemSum + item.size, 0), 0);
-  const aiRuns = filteredReports.reduce((sum, report) => sum + Number(report.translationAttempts || 0), 0);
+  const filteredAiUsage = useMemo(() => monthlyAiUsageEvents(aiUsageEvents, month, selectedUser), [aiUsageEvents, month, selectedUser]);
+  const aiUsageRows = useMemo(() => summarizeAiUsage(filteredAiUsage, users), [filteredAiUsage, users]);
+  const aiApiRuns = aiApiGenerationCount(filteredAiUsage);
+  const aiCacheReuses = aiCacheReuseCount(filteredAiUsage);
+  const aiInputTokens = filteredAiUsage.reduce((sum, item) => sum + aiUsageNumber(item, "inputTokens"), 0);
+  const aiOutputTokens = filteredAiUsage.reduce((sum, item) => sum + aiUsageNumber(item, "outputTokens"), 0);
+  const aiAlert = !selectedUser && month === todayJst().slice(0, 7) && aiApiRuns >= MONTHLY_AI_GENERATION_ALERT_THRESHOLD;
   const pending = reports.filter((item) => (item.reviewStatus === "unreviewed" || item.reviewStatus === "needs_review") && (!isManager || item.userId !== profile?.uid));
   const pendingProducts = productObservations.filter((item) => item.reviewStatus !== "reviewed" && (!isManager || item.userId !== profile?.uid));
   const pendingAttendance = filteredAttendance.filter((item) => item.needsReview);
@@ -75,8 +87,9 @@ export function AdminPage({ attendance, reports, users, categories, holidayOverr
         <section className="card"><div className="section-title"><span>{locale === "ja" ? "期間内の記録" : "期间记录"}</span><span className="tag blue">{range.from} – {range.to}</span></div><div className="table-wrap"><table><thead><tr><th>{t("displayName")}</th><th>{locale === "ja" ? "日付" : "日期"}</th><th>{locale === "ja" ? "勤務" : "方式"}</th><th>{t("startTime")}</th><th>{t("endTime")}</th><th>{t("elapsed")}</th></tr></thead><tbody>{filteredAttendance.map((item) => <tr key={item.id}><td><strong>{item.userName}</strong></td><td>{item.workDate}</td><td><span className="attendance-kind-tags">{item.holidayWork && <span className="tag amber">{locale === "ja" ? "休日勤務" : "休息日工作"}</span>}<span className="tag soft">{t(item.workMode === "home" ? "homeWork" : item.workMode)}</span></span></td><td><div className="attendance-entry-cell"><strong>{formatTime(item.startedAt)}</strong>{item.startEntryMethod === "manual" && <><span className="tag amber">{locale === "ja" ? "手入力始業" : "手动补录开始"}</span><small>{locale === "ja" ? "操作時刻" : "操作时间"}: {formatTime(item.clockInRecordedAt)}</small><small>{locale === "ja" ? "理由" : "原因"}: {item.manualStartReason || "-"}</small></>}{item.corrected && <><span className="tag amber">{locale === "ja" ? "勤怠時刻を修正" : "已修改考勤时间"}</span><small>{locale === "ja" ? "修正理由" : "修改原因"}: {item.correctionReason || "-"}</small></>}{item.needsReview && <span className="tag amber">{locale === "ja" ? "要確認" : "待确认"}</span>}{isManager && item.needsReview && <button type="button" className="button ghost" onClick={() => void reviewAttendance(item.id)}><Check size={15} />{locale === "ja" ? "確認済みにする" : "标记为已确认"}</button>}</div></td><td>{formatTime(item.endedAt)}</td><td>{formatElapsed(elapsedMinutes(item.startedAt, item.endedAt), locale)}</td></tr>)}</tbody></table>{filteredAttendance.length === 0 && <div className="empty-table">{t("noData")}</div>}</div></section>
         <section className="card review-panel"><div className="section-title"><span>{locale === "ja" ? "未確認の日報" : "待确认日报"}</span><span className="count-badge">{pending.length}</span></div>{pending.slice(0, 8).map((report) => <article key={report.id}><div><strong>{report.userName}</strong><small>{report.reportDate}{report.destinations ? ` · ${report.destinations}` : ""}</small><p>{report.translatedFields?.activities || report.activities}</p></div><button className="button ghost review-open-button" onClick={() => setReviewingReport(report)}><Eye size={16} />{isManager ? (locale === "ja" ? "内容を確認" : "查看并确认") : (locale === "ja" ? "閲覧" : "查看")}</button></article>)}{pending.length === 0 && <div className="empty-compact"><Check size={22} />{locale === "ja" ? "すべて確認済みです" : "已全部确认"}</div>}</section>
       </div>
+      {isManager && <AiUsageSection locale={locale} month={month} events={filteredAiUsage} rows={aiUsageRows} users={users} apiRuns={aiApiRuns} cacheReuses={aiCacheReuses} inputTokens={aiInputTokens} outputTokens={aiOutputTokens} alert={aiAlert} displayNameLabel={t("displayName")} />}
       <section className="card product-admin-summary"><div className="section-title"><span>{locale === "ja" ? "商品候補の状況" : "商品候选情况"}</span><span className="count-badge">{products.length}</span></div><div className="product-summary-groups"><div><small>{locale === "ja" ? "検討状態別" : "按评估状态"}</small><div className="summary-chips">{(["new", "considering", "on_hold", "closed"] as ProductStatus[]).map((value) => <span className={`status-chip product-${value}`} key={value}>{adminProductStatus(value, locale)} {productStatusCounts[value] || 0}</span>)}</div></div><div><small>{locale === "ja" ? "発見者別" : "按发现者"}</small><div className="summary-chips">{Object.entries(productObserverCounts).map(([name, count]) => <span className="tag soft" key={name}>{name} {count}</span>)}{Object.keys(productObserverCounts).length === 0 && <span className="tag soft">{locale === "ja" ? "記録なし" : "暂无记录"}</span>}</div></div></div></section>
-      {isManager && <section className="card user-management"><div className="section-title"><span>{t("accountManagement")}</span><span className="usage-caption">{locale === "ja" ? `旧方式の日報添付 ${formatBytes(attachmentBytes)}・AI ${aiRuns}回` : `旧版日报附件 ${formatBytes(attachmentBytes)}・AI ${aiRuns}次`}</span></div><div className="user-grid">{users.map((user) => <article key={user.uid}><span className="avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{user.email}</small><em>{user.role === "employee_manager" ? t("manager") : user.role === "president_viewer" ? t("president") : t("employee")}</em></span>{user.uid !== profile?.uid && <button className={`user-status ${user.active ? "active" : "inactive"}`} onClick={() => void toggleUser(user)}>{user.active ? (locale === "ja" ? "有効" : "启用") : (locale === "ja" ? "無効" : "停用")}</button>}</article>)}</div></section>}
+      {isManager && <section className="card user-management"><div className="section-title"><span>{t("accountManagement")}</span><span className="usage-caption">{locale === "ja" ? `旧方式の日報添付 ${formatBytes(attachmentBytes)}` : `旧版日报附件 ${formatBytes(attachmentBytes)}`}</span></div><div className="user-grid">{users.map((user) => <article key={user.uid}><span className="avatar">{user.displayName.slice(0, 1)}</span><span><strong>{user.displayName}</strong><small>{user.email}</small><em>{user.role === "employee_manager" ? t("manager") : user.role === "president_viewer" ? t("president") : t("employee")}</em></span>{user.uid !== profile?.uid && <button className={`user-status ${user.active ? "active" : "inactive"}`} onClick={() => void toggleUser(user)}>{user.active ? (locale === "ja" ? "有効" : "启用") : (locale === "ja" ? "無効" : "停用")}</button>}</article>)}</div></section>}
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} notify={notify} />}
       {showCategory && <CategoryModal categories={categories} onClose={() => setShowCategory(false)} notify={notify} />}
       {showCalendar && <CompanyCalendarModal overrides={holidayOverrides} initialMonth={month} onClose={() => setShowCalendar(false)} notify={notify} />}
@@ -84,6 +97,32 @@ export function AdminPage({ attendance, reports, users, categories, holidayOverr
       {reviewingReport && <ReportReviewModal report={reviewingReport} isManager={isManager} onClose={() => setReviewingReport(null)} onReviewed={() => void review(reviewingReport.id)} />}
     </div>
   );
+}
+
+function AiUsageSection({ locale, month, events, rows, users, apiRuns, cacheReuses, inputTokens, outputTokens, alert, displayNameLabel }: {
+  locale: "ja" | "zh-CN";
+  month: string;
+  events: AuditEvent[];
+  rows: ReturnType<typeof summarizeAiUsage>;
+  users: UserProfile[];
+  apiRuns: number;
+  cacheReuses: number;
+  inputTokens: number;
+  outputTokens: number;
+  alert: boolean;
+  displayNameLabel: string;
+}) {
+  const names = new Map(users.map((user) => [user.uid, user.displayName]));
+  const progress = Math.min(100, Math.round((apiRuns / MONTHLY_AI_GENERATION_ALERT_THRESHOLD) * 100));
+  return <section className="card ai-usage-summary">
+    <div className="section-title"><span>{locale === "ja" ? "日報AIの利用状況" : "日报AI使用情况"}</span><span className="tag blue">{month.replace("-", "/")}</span></div>
+    {alert && <div className="ai-usage-alert" role="alert"><AlertTriangle size={22} /><span><strong>{locale === "ja" ? "今月のAI生成が50回に達しました" : "本月AI生成已达到50次"}</strong><small>{locale === "ja" ? "利用者別・日時別の履歴を確認し、今後の運用回数を検討してください。" : "请查看按用户和时间记录的明细，并评估今后的使用次数。"}</small></span></div>}
+    <p className="ai-usage-description">{locale === "ja" ? "APIを実行した回数と、同じ内容の保存済み下書きを再利用した回数です。日報本文や生成内容はこの集計に保存しません。" : "分别统计API实际执行次数和相同内容复用已保存草稿的次数。此统计不保存日报正文或生成内容。"}</p>
+    <div className="ai-usage-limit-meter"><span><strong>{locale === "ja" ? `月間API生成 ${apiRuns} / ${MONTHLY_AI_GENERATION_ALERT_THRESHOLD}回` : `月度API生成 ${apiRuns} / ${MONTHLY_AI_GENERATION_ALERT_THRESHOLD}次`}</strong><small>{locale === "ja" ? "50回で管理担当へ警告" : "达到50次时向管理员警告"}</small></span><div aria-hidden="true"><i style={{ width: `${progress}%` }} /></div></div>
+    <div className="ai-usage-totals"><Metric icon={Sparkles} label={locale === "ja" ? "API生成" : "API生成"} value={`${apiRuns}${locale === "ja" ? "回" : "次"}`} tone="violet" /><Metric icon={FileText} label={locale === "ja" ? "保存済みを再利用" : "复用已保存草稿"} value={`${cacheReuses}${locale === "ja" ? "回" : "次"}`} tone="blue" /><Metric icon={Clock3} label={locale === "ja" ? "入力トークン" : "输入Token"} value={inputTokens.toLocaleString()} tone="green" /><Metric icon={Clock3} label={locale === "ja" ? "出力トークン" : "输出Token"} value={outputTokens.toLocaleString()} tone="amber" /></div>
+    <div className="ai-usage-table-block"><h3>{locale === "ja" ? "利用者別の集計" : "按用户汇总"}</h3><div className="table-wrap"><table><thead><tr><th>{displayNameLabel}</th><th>{locale === "ja" ? "API生成" : "API生成"}</th><th>{locale === "ja" ? "保存済みを再利用" : "复用已保存草稿"}</th><th>{locale === "ja" ? "入力 / 出力" : "输入 / 输出"}</th><th>{locale === "ja" ? "最終利用" : "最后使用"}</th></tr></thead><tbody>{rows.map((row) => <tr key={row.userId}><td><strong>{row.userName}</strong></td><td>{row.apiRuns}{locale === "ja" ? "回" : "次"}</td><td>{row.cacheReuses}{locale === "ja" ? "回" : "次"}</td><td>{row.inputTokens.toLocaleString()} / {row.outputTokens.toLocaleString()}</td><td>{row.lastUsedAt ? `${todayJst(row.lastUsedAt.toDate())} ${formatTime(row.lastUsedAt)}` : "-"}</td></tr>)}</tbody></table>{rows.length === 0 && <div className="empty-table">{locale === "ja" ? "この期間の利用記録はありません" : "此期间没有使用记录"}</div>}</div></div>
+    <div className="ai-usage-table-block"><h3>{locale === "ja" ? "日時別の利用ログ" : "按时间的使用记录"}</h3><div className="table-wrap"><table><thead><tr><th>{locale === "ja" ? "利用日時" : "使用时间"}</th><th>{displayNameLabel}</th><th>{locale === "ja" ? "対象の日報" : "目标日报"}</th><th>{locale === "ja" ? "処理" : "处理"}</th><th>{locale === "ja" ? "入力" : "输入"}</th><th>{locale === "ja" ? "出力" : "输出"}</th><th>{locale === "ja" ? "添付" : "附件"}</th></tr></thead><tbody>{events.map((event) => <tr key={event.id}><td>{todayJst(event.createdAt.toDate())} {formatTime(event.createdAt)}</td><td><strong>{names.get(event.subjectUserId) || event.subjectUserId}</strong></td><td>{aiUsageReportDate(event) || "-"}</td><td><span className={`tag ${event.action === "ai_generated" ? "violet" : "blue"}`}>{event.action === "ai_generated" ? (locale === "ja" ? "API生成" : "API生成") : (locale === "ja" ? "保存済みを再利用" : "复用已保存草稿")}</span></td><td>{event.action === "ai_generated" ? aiUsageNumber(event, "inputTokens").toLocaleString() : "-"}</td><td>{event.action === "ai_generated" ? aiUsageNumber(event, "outputTokens").toLocaleString() : "-"}</td><td>{aiUsageNumber(event, "analyzedAttachmentCount")}{locale === "ja" ? "件" : "个"}</td></tr>)}</tbody></table>{events.length === 0 && <div className="empty-table">{locale === "ja" ? "この期間の利用ログはありません" : "此期间没有使用记录"}</div>}</div></div>
+  </section>;
 }
 
 function CompanyCalendarModal({ overrides, initialMonth, onClose, notify }: { overrides: CompanyHolidayOverride[]; initialMonth: string; onClose: () => void; notify: (type: "success" | "error", message: string) => void }) {
