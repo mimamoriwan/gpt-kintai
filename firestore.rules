@@ -91,6 +91,17 @@ service cloud.firestore {
         allow write: if false;
       }
     }
+    match /dailyReportAutomations/{automationId} {
+      allow get: if ownerScoped(resource.data) || viewer();
+      allow list: if owner(resource.data) || viewer();
+      allow write: if false;
+    }
+    match /presidentInstructions/{instructionId} {
+      allow get, list: if signedIn()
+        && sameDemoScope(resource.data)
+        && (request.auth.uid == resource.data.authorId || request.auth.uid in resource.data.recipientIds);
+      allow write: if false;
+    }
     match /workLogs/{logId} {
       allow get: if ownerScoped(resource.data) || viewer();
       allow list: if owner(resource.data) || viewer();

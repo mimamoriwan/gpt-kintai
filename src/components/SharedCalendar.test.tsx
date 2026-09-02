@@ -35,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("SharedCalendar", () => {
@@ -131,14 +132,30 @@ describe("SharedCalendar", () => {
     render(<SharedCalendar
       attendance={[] as AttendanceRecord[]}
       reports={[{ userId: "manager", reportDate: submittedDate }] as DailyReport[]}
-      holidayOverrides={[{ id: "holiday", date: holiday, dayType: "company_holiday", label: "臨時休業" }]}
+      holidayOverrides={[{ id: "holiday", date: holiday, dayType: "company_holiday", label: "臨時休業" }, { id: "submitted-workday", date: submittedDate, dayType: "workday" }]}
       notify={vi.fn()}
     />);
 
     expect(await screen.findByLabelText(/日報の提出状況/)).toBeInTheDocument();
+    if (submittedDate.slice(0, 7) !== today.slice(0, 7)) fireEvent.click(screen.getByRole("button", { name: "前の月" }));
     expect(screen.getByRole("button", { name: `${formatDate(submittedDate)}、日報提出済み` })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: `${formatDate(today)}、日報未提出` })).toBeInTheDocument();
+    if (submittedDate.slice(0, 7) === today.slice(0, 7)) expect(screen.getByRole("button", { name: `${formatDate(today)}、日報未提出` })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `${formatDate(holiday)}、臨時休業` })).not.toHaveAccessibleName(/日報未提出/);
+  });
+
+  it("shows an automatically created report as waiting for employee confirmation", async () => {
+    const today = todayJst();
+    serviceMocks.getCalendarMembers.mockResolvedValue(members);
+    serviceMocks.watchCalendarEvents.mockImplementation((_profile, _from, _to, callback) => { callback([]); return vi.fn(); });
+
+    render(<SharedCalendar
+      attendance={[{ userId: "manager", workDate: today }] as AttendanceRecord[]}
+      reports={[{ userId: "manager", reportDate: today, status: "provisional" }] as DailyReport[]}
+      holidayOverrides={[]}
+      notify={vi.fn()}
+    />);
+
+    expect(await screen.findByRole("button", { name: `${formatDate(today)}、日報本人確認待ち` })).toBeInTheDocument();
   });
 
   it("hides report status on the signed-in member's leave without attendance", async () => {

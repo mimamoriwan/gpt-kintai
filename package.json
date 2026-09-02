@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rules": "firebase emulators:exec --only firestore,auth,storage 'vitest run --config vitest.rules.config.ts'",
+    "test:rules": "firebase emulators:exec --project demo-kintai-rules --only firestore,auth,storage 'vitest run --config vitest.rules.config.ts'",
     "emulators": "firebase emulators:start --project demo-kintai --export-on-exit=.firebase-data",
     "seed": "node scripts/seed-emulator.mjs",
     "demo:data": "node scripts/manage-demo-data.mjs",

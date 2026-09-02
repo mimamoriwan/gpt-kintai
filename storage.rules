@@ -26,6 +26,23 @@ service firebase.storage {
         ? request.resource.size <= 1024 * 1024
         : request.resource.size <= 10 * 1024 * 1024;
     }
+    function instructionData(instructionId) {
+      return firestore.get(/databases/(default)/documents/presidentInstructions/$(instructionId)).data;
+    }
+    function canReadNormalInstruction(instructionId) {
+      return signedIn()
+        && instructionData(instructionId).isDemo == false
+        && (request.auth.uid == instructionData(instructionId).authorId
+          || request.auth.uid in instructionData(instructionId).recipientIds);
+    }
+    function canReadDemoInstruction(datasetId, instructionId) {
+      return demoAccount()
+        && demoDataset() == datasetId
+        && instructionData(instructionId).isDemo == true
+        && instructionData(instructionId).demoDatasetId == datasetId
+        && (request.auth.uid == instructionData(instructionId).authorId
+          || request.auth.uid in instructionData(instructionId).recipientIds);
+    }
     match /reports/{uid}/{reportId}/{fileName} {
       allow read: if signedIn() && (request.auth.uid == uid || viewer());
       allow create: if signedIn() && !demoAccount() && role() != 'president_viewer' && request.auth.uid == uid && allowedType() && allowedSize();
@@ -39,6 +56,15 @@ service firebase.storage {
         && request.auth.uid == uid
         && request.resource.contentType == 'image/jpeg'
         && request.resource.size <= 1024 * 1024;
+      allow update, delete: if false;
+    }
+    match /president-instructions/{instructionId}/{uid}/{fileName} {
+      allow read: if canReadNormalInstruction(instructionId);
+      allow create: if signedIn()
+        && !demoAccount()
+        && request.auth.uid == uid
+        && allowedType()
+        && allowedSize();
       allow update, delete: if false;
     }
     match /demo/{datasetId}/reports/{uid}/{reportId}/{fileName} {
@@ -59,6 +85,15 @@ service firebase.storage {
         && demoDataset() == datasetId
         && request.resource.contentType == 'image/jpeg'
         && request.resource.size <= 1024 * 1024;
+      allow update, delete: if false;
+    }
+    match /demo/{datasetId}/president-instructions/{instructionId}/{uid}/{fileName} {
+      allow read: if canReadDemoInstruction(datasetId, instructionId);
+      allow create: if demoAccount()
+        && request.auth.uid == uid
+        && demoDataset() == datasetId
+        && allowedType()
+        && allowedSize();
       allow update, delete: if false;
     }
   }

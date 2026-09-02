@@ -286,6 +286,11 @@ export const reportInputSchema = z.object({
   correctionReason: z.string().min(3).max(500).nullish().transform((value) => value ?? undefined)
 }).refine((input) => input.attachments.reduce((sum, item) => sum + item.size, 0) <= 20 * 1024 * 1024, "Attachments exceed 20MB");
 
+export const reportCommentInputSchema = z.object({
+  reportId: z.string().trim().min(1).max(180),
+  body: z.string().trim().min(1, "コメントを入力してください。").max(2000, "コメントは2000文字以内で入力してください。")
+});
+
 export function jstDate(date = new Date()): string {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone: "Asia/Tokyo",

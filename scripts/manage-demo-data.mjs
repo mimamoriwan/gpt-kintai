@@ -26,6 +26,7 @@ const DELETE_COLLECTIONS = [
   "weeklyReports",
   "weeklyReportRevisions",
   "weeklyMeetings",
+  "presidentInstructions",
   "nonWorkingReasons",
   "evidenceReferences",
   "monthlyEvidencePackages",

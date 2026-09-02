@@ -12,6 +12,7 @@ import {
   normalizeJan,
   productFactsSchema,
   productObservationInputSchema,
+  reportCommentInputSchema,
   reportDraftInputSchema,
   reportInputSchema,
   weeklyReportSectionsSchema
@@ -82,6 +83,11 @@ describe("report validation", () => {
   });
   it("rejects non-http links", () => { expect(() => reportInputSchema.parse({ ...base, attachments: [{ id: "1", name: "bad", contentType: "text/uri-list", size: 0, linkUrl: "javascript:alert(1)" }] })).toThrow(); });
   it("requires a correction reason when supplied to be meaningful", () => { expect(() => reportInputSchema.parse({ ...base, correctionReason: "x" })).toThrow(); });
+  it("trims a report comment and enforces its length", () => {
+    expect(reportCommentInputSchema.parse({ reportId: "report-1", body: "  確認しました。  " }).body).toBe("確認しました。");
+    expect(() => reportCommentInputSchema.parse({ reportId: "report-1", body: "   " })).toThrow();
+    expect(() => reportCommentInputSchema.parse({ reportId: "report-1", body: "あ".repeat(2001) })).toThrow();
+  });
 });
 
 describe("time and export helpers", () => {

@@ -125,6 +125,31 @@ put("auditEvents/demo-audit-attendance-correction", {
   reason: "DEMO：通信不良のため実際の始業時刻へ訂正", createdAt: jst("2026-06-23", "18:00")
 });
 
+put("presidentInstructions/demo-instruction-urgent", {
+  id: "demo-instruction-urgent", authorId: "president-demo", authorName: "社長（デモ）", authorRole: "president_viewer", attachments: [],
+  titleOriginal: "候補商品の比較結果をまとめてください", bodyOriginal: "DEMO：価格、容量、包装、中国市場向けの説明ポイントを比較し、7月15日までにまとめてください。",
+  titleZh: "请汇总候选商品的比较结果", bodyZh: "DEMO：请比较价格、容量、包装以及面向中国市场的说明要点，并在7月15日前汇总。",
+  translationStatus: "completed", translationAttempts: 1, priority: "urgent", dueDate: "2026-07-15", recipientIds: [DEMO_USER_ID],
+  recipientStates: { [DEMO_USER_ID]: { userId: DEMO_USER_ID, displayName: "方 蕊（デモ）", status: "pending" } }, status: "active",
+  createdAt: jst("2026-07-14", "09:00"), updatedAt: jst("2026-07-14", "09:00")
+});
+put("presidentInstructions/demo-instruction-acknowledged", {
+  id: "demo-instruction-acknowledged", authorId: "president-demo", authorName: "社長（デモ）", authorRole: "president_viewer", attachments: [],
+  titleOriginal: "メーカー訪問予定の確認", bodyOriginal: "DEMO：次回の訪問日時と参加者を共有カレンダーで確認してください。",
+  titleZh: "确认厂家访问安排", bodyZh: "DEMO：请在共享日历中确认下次访问日期、时间和参加人员。",
+  translationStatus: "completed", translationAttempts: 1, priority: "normal", dueDate: "2026-07-16", recipientIds: [DEMO_USER_ID],
+  recipientStates: { [DEMO_USER_ID]: { userId: DEMO_USER_ID, displayName: "方 蕊（デモ）", status: "acknowledged", acknowledgedAt: jst("2026-07-14", "10:00") } }, status: "active",
+  createdAt: jst("2026-07-13", "16:00"), updatedAt: jst("2026-07-14", "10:00")
+});
+put("presidentInstructions/demo-instruction-completed", {
+  id: "demo-instruction-completed", authorId: "president-demo", authorName: "社長（デモ）", authorRole: "president_viewer", attachments: [],
+  titleOriginal: "商品写真の登録確認", bodyOriginal: "DEMO：候補商品の正面写真が登録済みか確認してください。",
+  titleZh: "确认商品照片登记", bodyZh: "DEMO：请确认候选商品正面照片是否已登记。",
+  translationStatus: "completed", translationAttempts: 1, priority: "normal", dueDate: "2026-07-10", recipientIds: [DEMO_USER_ID],
+  recipientStates: { [DEMO_USER_ID]: { userId: DEMO_USER_ID, displayName: "方 蕊（デモ）", status: "completed", acknowledgedAt: jst("2026-07-09", "09:20"), completedAt: jst("2026-07-09", "15:30"), completionNote: "DEMO：正面写真の登録を確認しました。" } }, status: "completed", completedAt: jst("2026-07-09", "15:30"),
+  createdAt: jst("2026-07-08", "17:00"), updatedAt: jst("2026-07-09", "15:30")
+});
+
 const productSeeds = [
   ["山椒香る米菓", "架空食品ラボA", "うるち米、植物油、山椒、食塩", "new", "demo-rice-cracker.svg"],
   ["柚子白だし", "サンプル調味研究所", "しょうゆ、だし、柚子果汁、食塩", "considering", "demo-yuzu-dashi.svg"],
@@ -248,7 +273,7 @@ export function createDemoFixture() {
     authUser: { uid: DEMO_USER_ID, email: DEMO_EMAIL, displayName: "方 蕊（デモ）", claims: { role: "employee", isDemo: true, demoDatasetId: DEMO_DATASET_ID, seedVersion: DEMO_SEED_VERSION } },
     dataset,
     documents: [...docs, { path: `demoDatasets/${DEMO_DATASET_ID}`, data: dataset }],
-    expected: { weekdays: weekdays.length, normalAttendance: 22, holidayAttendance: 1, attendance: 23, nonWorkingReasons: 1, workLogs: 60, dailyReports: 23, products: 12, productObservations: 15, weeklyPlans: 5, weeklyReports: 4, weeklyMeetings: 4, unreviewedDailyReports: 1 }
+    expected: { weekdays: weekdays.length, normalAttendance: 22, holidayAttendance: 1, attendance: 23, nonWorkingReasons: 1, workLogs: 60, dailyReports: 23, products: 12, productObservations: 15, weeklyPlans: 5, weeklyReports: 4, weeklyMeetings: 4, presidentInstructions: 3, unreviewedDailyReports: 1 }
   };
 }
 

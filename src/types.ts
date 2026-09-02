@@ -6,8 +6,15 @@ export type WorkMode = "office" | "business_trip" | "home" | "other";
 export type ReportLanguage = "ja" | "zh-CN";
 export type TranslationStatus = "not_required" | "pending" | "completed" | "failed";
 export type ReviewStatus = "not_required" | "unreviewed" | "reviewed" | "needs_review";
+export type DailyReportStatus = "provisional" | "submitted";
+export type DailyReportCreationMethod = "manual" | "auto_clock_out" | "auto_day_rollover";
+export type DailyReportAutomationStatus = "queued" | "generating" | "created" | "blocked_no_memo" | "failed";
+export type DailyReportAutomationTrigger = "clock_out" | "day_rollover" | "memo_updated";
 export type CompanyDayType = "company_holiday" | "workday";
 export type CalendarEventType = "work" | "business_trip" | "leave";
+export type InstructionPriority = "normal" | "urgent";
+export type InstructionRecipientStatus = "pending" | "acknowledged" | "completed";
+export type InstructionStatus = "active" | "completed" | "cancelled";
 
 export interface DemoRecordMetadata {
   isDemo?: boolean;
@@ -37,6 +44,53 @@ export interface UserProfile extends DemoRecordMetadata {
   locale: Locale;
   active: boolean;
   createdAt?: Timestamp;
+}
+
+export interface AnnouncementRecipient extends DemoRecordMetadata {
+  uid: string;
+  displayName: string;
+  role: Role;
+  active: boolean;
+}
+
+export interface InstructionRecipientState {
+  userId: string;
+  displayName: string;
+  status: InstructionRecipientStatus;
+  acknowledgedAt?: Timestamp;
+  completedAt?: Timestamp;
+  completionNote?: string;
+}
+
+export interface PresidentInstruction extends DemoRecordMetadata {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole?: Role;
+  sourceLocale?: Locale;
+  titleOriginal: string;
+  bodyOriginal: string;
+  titleJa?: string;
+  bodyJa?: string;
+  titleZh?: string;
+  bodyZh?: string;
+  translationStatus: "pending" | "completed" | "failed";
+  translationError?: string;
+  translationAttempts: number;
+  priority: InstructionPriority;
+  dueDate: string;
+  attachments?: Attachment[];
+  recipientIds: string[];
+  recipientStates: Record<string, InstructionRecipientState>;
+  status: InstructionStatus;
+  cancelledAt?: Timestamp;
+  cancelledBy?: string;
+  cancellationReason?: string;
+  replacesInstructionId?: string;
+  replacedByInstructionId?: string;
+  completedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface AttendanceRecord extends DemoRecordMetadata {
@@ -82,6 +136,15 @@ export interface Attachment {
   linkUrl?: string;
 }
 
+export interface DailyReportComment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole: Extract<Role, "employee_manager" | "president_viewer">;
+  body: string;
+  createdAt: Timestamp;
+}
+
 export interface DailyReport extends ReportFields, DemoRecordMetadata {
   id: string;
   userId: string;
@@ -93,14 +156,41 @@ export interface DailyReport extends ReportFields, DemoRecordMetadata {
   translationError?: string;
   translationAttempts: number;
   attachments: Attachment[];
-  status: "submitted";
+  status: DailyReportStatus;
+  creationMethod?: DailyReportCreationMethod;
+  sourceContentHash?: string;
+  autoCreatedAt?: Timestamp;
+  confirmedAt?: Timestamp;
+  confirmedBy?: string;
   reviewStatus: ReviewStatus;
   reviewedAt?: Timestamp;
   reviewedBy?: string;
+  comments?: DailyReportComment[];
+  commentsUpdatedAt?: Timestamp;
   revision: number;
-  submittedAt: Timestamp;
+  submittedAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface DailyReportAutomation extends DemoRecordMetadata {
+  id: string;
+  userId: string;
+  userName: string;
+  workDate: string;
+  status: DailyReportAutomationStatus;
+  triggerReason: DailyReportAutomationTrigger;
+  creationMethod?: Exclude<DailyReportCreationMethod, "manual">;
+  attemptCount: number;
+  maxAttempts: number;
+  reportId?: string;
+  sourceContentHash?: string;
+  lastError?: string;
+  completedAt?: Timestamp;
+  confirmedAt?: Timestamp;
+  confirmedBy?: string;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
 }
 
 export interface ReportRevision extends DemoRecordMetadata {
@@ -467,6 +557,7 @@ export interface WorkLogEntry extends DemoRecordMetadata {
 }
 
 export interface GeneratedReportDraft extends ReportFields {
+  sourceContentHash: string;
   aiMeta: {
     cached: boolean;
     successfulGenerations: number;

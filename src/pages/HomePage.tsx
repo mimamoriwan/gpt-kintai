@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Building2, CalendarOff, CheckCircle2, ChevronDown, Clock3, Home as HomeIcon, MapPin, Plane } from "lucide-react";
 import { useAuth } from "../auth";
 import { SharedCalendar } from "../components/SharedCalendar";
+import { InstructionHomePanel } from "../components/PresidentInstructions";
 import { useI18n } from "../i18n";
 import { formatDate, formatTime, todayJst } from "../lib/format";
 import { resolveCompanyDay } from "../lib/companyCalendar";
 import { MONTHLY_AI_GENERATION_ALERT_THRESHOLD, aiApiGenerationCount, monthlyAiUsageEvents } from "../lib/aiUsage";
 import { clockIn, clockOut, correctAttendance, watchAiUsageEvents } from "../services/api";
-import type { AttendanceRecord, AuditEvent, CompanyHolidayOverride, DailyReport, WorkMode } from "../types";
+import type { AnnouncementRecipient, AttendanceRecord, AuditEvent, CompanyHolidayOverride, DailyReport, DailyReportAutomation, PresidentInstruction, WorkMode } from "../types";
 
-export function HomePage({ attendance, reports, holidayOverrides, onReport, notify }: { attendance: AttendanceRecord[]; reports: DailyReport[]; holidayOverrides: CompanyHolidayOverride[]; onReport: () => void; notify: (type: "success" | "error", message: string) => void }) {
+export function HomePage({ attendance, reports, automations = [], holidayOverrides, instructions = [], users = [], onReport, onReportDate, onConfirmReport, notify }: { attendance: AttendanceRecord[]; reports: DailyReport[]; automations?: DailyReportAutomation[]; holidayOverrides: CompanyHolidayOverride[]; instructions?: PresidentInstruction[]; users?: AnnouncementRecipient[]; onReport: () => void; onReportDate?: (date: string) => void; onConfirmReport?: (report: DailyReport) => void; notify: (type: "success" | "error", message: string) => void }) {
   const { profile } = useAuth();
   const { locale, t } = useI18n();
   const [mode, setMode] = useState<WorkMode>("office");
@@ -37,7 +38,20 @@ export function HomePage({ attendance, reports, holidayOverrides, onReport, noti
   const active = attendance.find((item) => item.userId === profile?.uid && item.status === "active");
   const staleActive = active && active.workDate < today ? active : undefined;
   const todayRecord = attendance.find((item) => item.userId === profile?.uid && item.workDate === today);
-  const hasReport = reports.some((item) => item.userId === profile?.uid && item.reportDate === today);
+  const ownReports = useMemo(() => reports.filter((item) => item.userId === profile?.uid), [profile?.uid, reports]);
+  const todayReport = ownReports.find((item) => item.reportDate === today);
+  const hasReport = Boolean(todayReport);
+  const todaySubmitted = Boolean(todayReport && todayReport.status !== "provisional");
+  const todayProvisional = todayReport?.status === "provisional" ? todayReport : undefined;
+  const actionableProvisional = useMemo(() => ownReports
+    .filter((item) => item.status === "provisional" && item.reportDate < today)
+    .sort((a, b) => a.reportDate.localeCompare(b.reportDate))[0], [ownReports, today]);
+  const actionableAutomation = useMemo(() => automations
+    .filter((item) => item.userId === profile?.uid
+      && (item.status === "blocked_no_memo" || item.status === "failed")
+      && !ownReports.some((report) => report.reportDate === item.workDate && report.status !== "provisional"))
+    .sort((a, b) => a.workDate.localeCompare(b.workDate))[0], [automations, ownReports, profile?.uid]);
+  const generatingToday = automations.some((item) => item.userId === profile?.uid && item.workDate === today && (item.status === "queued" || item.status === "generating"));
   const companyDay = useMemo(() => resolveCompanyDay(today, holidayOverrides.find((item) => item.date === today)), [holidayOverrides, today]);
   const hasTodayWork = Boolean(todayRecord || (active && active.workDate === today));
   const showReportReminder = !hasReport && (!companyDay.isHoliday || hasTodayWork);
@@ -117,6 +131,17 @@ export function HomePage({ attendance, reports, holidayOverrides, onReport, noti
   return (
     <div className="page home-page">
       <div className="page-heading"><div><span className="eyebrow">{t("today")}</span><h1>{locale === "ja" ? `${profile?.displayName}さん、お疲れさまです` : `${profile?.displayName}，辛苦了`}</h1><p>{formatDate(today, locale === "ja" ? "ja-JP" : "zh-CN")}</p></div></div>
+      <InstructionHomePanel instructions={instructions} users={users} notify={notify} />
+      {!presidentHome && actionableAutomation && <section className="card automatic-report-alert error" role="alert">
+        <span className="modal-icon warning"><AlertTriangle size={24} /></span>
+        <span><strong>{actionableAutomation.status === "blocked_no_memo" ? (locale === "ja" ? "業務メモがないため日報を作成できませんでした" : "因没有工作记录，无法生成日报") : (locale === "ja" ? "日報の自動作成に失敗しました" : "日报自动生成失败")}</strong><small>{formatDate(actionableAutomation.workDate, locale === "ja" ? "ja-JP" : "zh-CN")} · {actionableAutomation.lastError || (locale === "ja" ? "業務メモを確認して、日報画面から作成してください。" : "请检查工作记录并在日报页面生成。")}</small></span>
+        <button className="button warning" type="button" onClick={() => onReportDate ? onReportDate(actionableAutomation.workDate) : onReport()}>{locale === "ja" ? "メモを確認" : "检查记录"}</button>
+      </section>}
+      {!presidentHome && actionableProvisional && <section className="card automatic-report-alert provisional" role="status">
+        <span className="notice-icon">日</span>
+        <span><strong>{locale === "ja" ? "日報は自動作成済みです。内容を確認してください" : "日报已自动生成，请确认内容"}</strong><small>{formatDate(actionableProvisional.reportDate, locale === "ja" ? "ja-JP" : "zh-CN")} · {locale === "ja" ? "本人確認後に正式提出となります" : "本人确认后将正式提交"}</small></span>
+        <button className="button primary" type="button" onClick={() => onConfirmReport ? onConfirmReport(actionableProvisional) : onReport()}>{locale === "ja" ? "確認して提出" : "确认并提交"}</button>
+      </section>}
       {showAiUsageAlert && <section className="card home-ai-usage-alert" role="alert"><span className="modal-icon warning"><AlertTriangle size={24} /></span><span><strong>{locale === "ja" ? `今月のAI生成が${monthlyAiRuns}回になりました` : `本月AI生成已达到${monthlyAiRuns}次`}</strong><small>{locale === "ja" ? "月50回の確認基準に達しています。管理画面の「日報AIの利用状況」で、利用者・日時・トークン数を確認してください。" : "已达到每月50次的检查标准。请在管理页面的“日报AI使用情况”中查看用户、时间和Token数。"}</small></span></section>}
       <div className={`home-grid ${presidentHome ? "president-home-grid" : ""}`}>
         {!presidentHome && <section className={`card attendance-hero ${active || todayRecord?.endedAt ? "is-compact" : ""}`}>
@@ -152,16 +177,18 @@ export function HomePage({ attendance, reports, holidayOverrides, onReport, noti
           </>}
         </section>}
         {!presidentHome && <aside className="home-aside">
-          {showReportReminder && <button className="notice-card report" onClick={onReport}><span className="notice-icon">日</span><span><strong>{t("reportReminder")}</strong><small>{t("writeReport")}</small></span><ArrowRight size={20} /></button>}
+          {showReportReminder && !generatingToday && <button className="notice-card report" onClick={onReport}><span className="notice-icon">日</span><span><strong>{t("reportReminder")}</strong><small>{t("writeReport")}</small></span><ArrowRight size={20} /></button>}
+          {generatingToday && <div className="notice-card report"><span className="notice-icon">AI</span><span><strong>{locale === "ja" ? "日報を自動作成中です" : "正在自动生成日报"}</strong><small>{locale === "ja" ? "完了後に内容確認をお願いします" : "完成后请确认内容"}</small></span></div>}
           {companyDay.isHoliday && !hasTodayWork && !hasReport && <div className="notice-card holiday"><CalendarOff size={22} /><span><strong>{locale === "ja" ? "会社休日（予定）" : "公司休息日（计划）"}</strong><small>{locale === "ja" ? "未打刻・日報未提出の警告対象外です" : "不显示漏打卡或未交日报提醒"}</small></span></div>}
-          {hasReport && <div className="notice-card success"><CheckCircle2 size={22} /><span><strong>{t("submitted")}</strong><small>{locale === "ja" ? "本日の日報は記録済みです" : "今天的日报已记录"}</small></span></div>}
+          {todayProvisional && <button className="notice-card report" onClick={() => onConfirmReport ? onConfirmReport(todayProvisional) : onReport()}><span className="notice-icon">仮</span><span><strong>{locale === "ja" ? "自動作成済み・本人未確認" : "已自动生成・待本人确认"}</strong><small>{locale === "ja" ? "内容を確認して正式提出してください" : "请确认内容后正式提交"}</small></span><ArrowRight size={20} /></button>}
+          {todaySubmitted && <div className="notice-card success"><CheckCircle2 size={22} /><span><strong>{t("submitted")}</strong><small>{locale === "ja" ? "本日の日報は記録済みです" : "今天的日报已记录"}</small></span></div>}
         </aside>}
         <SharedCalendar attendance={attendance} reports={reports} holidayOverrides={holidayOverrides} notify={notify} />
       </div>
       {confirmingClockOut && active && !staleActive && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setConfirmingClockOut(false); }}>
         <section className="modal clock-out-modal" role="dialog" aria-modal="true" aria-labelledby="clock-out-title">
           <div className="modal-icon danger"><Clock3 size={25} /></div>
-          <div><h2 id="clock-out-title">{locale === "ja" ? "終業を確定しますか？" : "确定结束工作吗？"}</h2><p>{locale === "ja" ? "終業時刻を記録します。誤操作の場合はキャンセルしてください。" : "将记录结束时间。如为误操作，请取消。"}</p></div>
+          <div><h2 id="clock-out-title">{locale === "ja" ? "終業を確定しますか？" : "确定结束工作吗？"}</h2><p>{locale === "ja" ? "終業時刻を記録します。終業後、業務メモと保存した添付資料をAIへ送信し、日報を自動で仮作成します。" : "将记录结束时间。结束工作后，工作记录及已保存附件会发送给AI并自动生成临时日报。"}</p></div>
           <div className="clock-out-times"><span><small>{t("startTime")}</small><strong>{formatTime(active.startedAt)}</strong></span><ArrowRight size={18} /><span><small>{t("endTime")}</small><strong>{locale === "ja" ? "現在" : "现在"}</strong></span></div>
           <div className="modal-actions"><button className="button ghost" type="button" disabled={busy} onClick={() => setConfirmingClockOut(false)}>{t("cancel")}</button><button className="button danger" type="button" disabled={busy} onClick={() => void finishWork()}>{busy ? "…" : locale === "ja" ? "終業を確定" : "确认结束"}</button></div>
         </section>
@@ -224,10 +251,13 @@ function jstLocalToIso(value: string): string {
 
 function attendanceErrorMessage(error: unknown, locale: string, fallback: string): string {
   const message = error instanceof Error ? error.message : "";
-  if (/internal|unauthorized|access token|401|invoke/i.test(message)) {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
+  if (code === "unauthenticated" || code === "functions/unauthenticated" || /internal|unauthenticated|unauthorized|access token|401|invoke/i.test(message)) {
     return locale === "ja"
-      ? "勤怠を記録できませんでした。通信を確認して、画面を再読み込みしてからもう一度お試しください。"
-      : "无法记录考勤。请检查网络并刷新页面后重试。";
+      ? "ログイン状態を確認できませんでした。画面を再読み込みして、もう一度お試しください。"
+      : "无法确认登录状态。请刷新页面后重试。";
   }
   return message || fallback;
 }

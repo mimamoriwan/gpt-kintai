@@ -8,7 +8,7 @@ import {
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
 import { connectStorageEmulator, getStorage } from "firebase/storage";
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
+import { getToken as getAppCheckToken, initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 
 const useEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true" ||
   (!import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.DEV);
@@ -23,6 +23,13 @@ const config = {
 };
 
 const app = initializeApp(config);
+const recaptchaEnterpriseSiteKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY;
+export const appCheck = !useEmulators && recaptchaEnterpriseSiteKey && typeof window !== "undefined"
+  ? initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(recaptchaEnterpriseSiteKey),
+    isTokenAutoRefreshEnabled: true
+  })
+  : null;
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const functions = getFunctions(app, "asia-northeast1");
@@ -38,14 +45,22 @@ if (useEmulators && typeof window !== "undefined" && !window.__firebaseEmulators
   window.__firebaseEmulatorsConnected = true;
 }
 
-if (!useEmulators && import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY) {
-  initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider(import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY),
-    isTokenAutoRefreshEnabled: true
-  });
-}
-
 export const usingEmulators = useEmulators;
+
+export async function prepareCallableSecurityContext(forceRefresh = false): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    const error = new Error("ログイン状態を確認できません。もう一度ログインしてください。") as Error & { code: string };
+    error.code = "functions/unauthenticated";
+    throw error;
+  }
+  await currentUser.getIdToken(forceRefresh);
+  if (appCheck) {
+    await getAppCheckToken(appCheck, forceRefresh);
+  } else if (!useEmulators) {
+    throw new Error("アプリ認証の設定を確認できません。管理担当者へ連絡してください。");
+  }
+}
 
 declare global {
   interface Window { __firebaseEmulatorsConnected?: boolean }

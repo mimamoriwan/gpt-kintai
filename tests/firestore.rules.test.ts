@@ -49,6 +49,28 @@ beforeEach(async () => {
       ...demoMetadata
     });
     await setDoc(doc(context.firestore(), "dailyReports", "manager-report"), { userId: "manager", reportDate: "2026-07-27" });
+    await setDoc(doc(context.firestore(), "dailyReportAutomations", "fang_2026-07-27"), {
+      userId: "fang",
+      workDate: "2026-07-27",
+      status: "blocked_no_memo",
+      isDemo: false
+    });
+    await setDoc(doc(context.firestore(), "dailyReportAutomations", "other_2026-07-27"), {
+      userId: "other",
+      workDate: "2026-07-27",
+      status: "failed",
+      isDemo: false
+    });
+    await setDoc(doc(context.firestore(), "dailyReportAutomations", "demo-fang_2026-07-15"), {
+      userId: "demo-fang",
+      workDate: "2026-07-15",
+      status: "created",
+      ...demoMetadata
+    });
+    await setDoc(doc(context.firestore(), "presidentInstructions", "instruction-fang"), { authorId: "president", recipientIds: ["fang", "manager"], recipientStates: { fang: { status: "pending" }, manager: { status: "pending" } }, status: "active", isDemo: false });
+    await setDoc(doc(context.firestore(), "presidentInstructions", "instruction-other"), { authorId: "president", recipientIds: ["other"], recipientStates: { other: { status: "pending" } }, status: "active", isDemo: false });
+    await setDoc(doc(context.firestore(), "presidentInstructions", "instruction-by-fang"), { authorId: "fang", recipientIds: ["manager"], recipientStates: { manager: { status: "pending" } }, status: "active", isDemo: false });
+    await setDoc(doc(context.firestore(), "presidentInstructions", "instruction-demo"), { authorId: "demo-president", recipientIds: ["demo-fang"], recipientStates: { "demo-fang": { status: "pending" } }, status: "active", ...demoMetadata });
     await setDoc(doc(context.firestore(), "workLogs", "fang-log"), { userId: "fang", workDate: "2026-07-27", tagLabel: "商品発掘", text: "商品を調査" });
     await setDoc(doc(context.firestore(), "companyHolidayOverrides", "2026-07-31"), { date: "2026-07-31", dayType: "company_holiday", label: "会社休業日" });
     await setDoc(doc(context.firestore(), "calendarEvents", "shared-event"), {
@@ -112,11 +134,50 @@ describe("Firestore access control", () => {
     await assertSucceeds(getDoc(doc(env.authenticatedContext("manager", { role: "employee_manager" }).firestore(), "attendance", "fang-record")));
     await assertSucceeds(getDoc(doc(env.authenticatedContext("president", { role: "president_viewer" }).firestore(), "attendance", "fang-record")));
   });
+
+  it("limits announcements to their author, recipients, and matching demo scope", async () => {
+    const fang = env.authenticatedContext("fang", { role: "employee" }).firestore();
+    const other = env.authenticatedContext("other", { role: "employee" }).firestore();
+    const manager = env.authenticatedContext("manager", { role: "employee_manager" }).firestore();
+    const president = env.authenticatedContext("president", { role: "president_viewer" }).firestore();
+    const demoFang = env.authenticatedContext("demo-fang", { role: "employee", isDemo: true, demoDatasetId: "demo-set" }).firestore();
+    await assertSucceeds(getDoc(doc(fang, "presidentInstructions", "instruction-fang")));
+    await assertFails(getDoc(doc(other, "presidentInstructions", "instruction-fang")));
+    await assertSucceeds(getDoc(doc(president, "presidentInstructions", "instruction-fang")));
+    await assertFails(getDoc(doc(manager, "presidentInstructions", "instruction-other")));
+    await assertSucceeds(getDoc(doc(fang, "presidentInstructions", "instruction-by-fang")));
+    await assertSucceeds(getDoc(doc(manager, "presidentInstructions", "instruction-by-fang")));
+    await assertFails(getDoc(doc(president, "presidentInstructions", "instruction-demo")));
+    await assertSucceeds(getDoc(doc(demoFang, "presidentInstructions", "instruction-demo")));
+    await assertSucceeds(getDocs(query(collection(fang, "presidentInstructions"), where("recipientIds", "array-contains", "fang"), where("isDemo", "==", false))));
+    await assertSucceeds(getDocs(query(collection(president, "presidentInstructions"), where("authorId", "==", "president"), where("isDemo", "==", false))));
+    await assertFails(setDoc(doc(president, "presidentInstructions", "direct-president"), { recipientIds: ["fang"], isDemo: false }));
+    await assertFails(updateDoc(doc(fang, "presidentInstructions", "instruction-fang"), { status: "completed" }));
+  });
   it("denies all direct client writes including president writes", async () => {
     const president = env.authenticatedContext("president", { role: "president_viewer" }).firestore();
     const fang = env.authenticatedContext("fang", { role: "employee" }).firestore();
     await assertFails(setDoc(doc(president, "dailyReports", "new"), { userId: "president" }));
     await assertFails(setDoc(doc(fang, "attendance", "new"), { userId: "fang" }));
+  });
+  it("shows automatic-report state only to its owner and viewers while keeping it server-owned", async () => {
+    const fang = env.authenticatedContext("fang", { role: "employee" }).firestore();
+    const other = env.authenticatedContext("other", { role: "employee" }).firestore();
+    const manager = env.authenticatedContext("manager", { role: "employee_manager" }).firestore();
+    const demoFang = env.authenticatedContext("demo-fang", { role: "employee", isDemo: true, demoDatasetId: "demo-set" }).firestore();
+
+    await assertSucceeds(getDoc(doc(fang, "dailyReportAutomations", "fang_2026-07-27")));
+    await assertFails(getDoc(doc(other, "dailyReportAutomations", "fang_2026-07-27")));
+    await assertSucceeds(getDoc(doc(manager, "dailyReportAutomations", "fang_2026-07-27")));
+    await assertFails(getDoc(doc(fang, "dailyReportAutomations", "demo-fang_2026-07-15")));
+    await assertSucceeds(getDoc(doc(demoFang, "dailyReportAutomations", "demo-fang_2026-07-15")));
+    await assertSucceeds(getDocs(query(collection(fang, "dailyReportAutomations"), where("userId", "==", "fang"))));
+    await assertFails(setDoc(doc(fang, "dailyReportAutomations", "direct"), {
+      userId: "fang",
+      workDate: "2026-07-28",
+      status: "created"
+    }));
+    await assertFails(updateDoc(doc(fang, "dailyReportAutomations", "fang_2026-07-27"), { status: "created" }));
   });
   it("keeps AI draft cache and generation counters server-only", async () => {
     const fang = env.authenticatedContext("fang", { role: "employee" }).firestore();
@@ -393,6 +454,35 @@ describe("Storage access control", () => {
   it("denies president uploads", async () => {
     const storage = env.authenticatedContext("president", { role: "president_viewer" }).storage();
     await assertFails(uploadBytes(ref(storage, "reports/president/report-1/photo.jpg"), new Uint8Array([1]), { contentType: "image/jpeg" }));
+  });
+
+  it("allows every signed-in author to attach files that only the author and recipients can read", async () => {
+    const presidentStorage = env.authenticatedContext("president", { role: "president_viewer" }).storage();
+    const path = "president-instructions/instruction-fang/president/72211f85-file.pdf";
+    await assertSucceeds(uploadBytes(ref(presidentStorage, path), new Uint8Array([0x25, 0x50, 0x44, 0x46]), { contentType: "application/pdf" }));
+
+    const fangStorage = env.authenticatedContext("fang", { role: "employee" }).storage();
+    const otherStorage = env.authenticatedContext("other", { role: "employee" }).storage();
+    const managerStorage = env.authenticatedContext("manager", { role: "employee_manager" }).storage();
+    await assertSucceeds(getBytes(ref(fangStorage, path)));
+    await assertSucceeds(getBytes(ref(managerStorage, path)));
+    await assertFails(getBytes(ref(otherStorage, path)));
+    await assertSucceeds(uploadBytes(ref(fangStorage, "president-instructions/new-announcement/fang/employee-file.pdf"), new Uint8Array([0x25, 0x50, 0x44, 0x46]), { contentType: "application/pdf" }));
+    await assertFails(uploadBytes(ref(fangStorage, "president-instructions/new-announcement/other/not-allowed.pdf"), new Uint8Array([1]), { contentType: "application/pdf" }));
+  });
+
+  it("keeps demo instruction attachments inside their matching dataset", async () => {
+    const demoPresidentStorage = env.authenticatedContext("demo-president", { role: "president_viewer", isDemo: true, demoDatasetId: "demo-set" }).storage();
+    const path = "demo/demo-set/president-instructions/instruction-demo/demo-president/72211f85-file.pdf";
+    await assertSucceeds(uploadBytes(ref(demoPresidentStorage, path), new Uint8Array([0x25, 0x50, 0x44, 0x46]), { contentType: "application/pdf" }));
+
+    const demoFangStorage = env.authenticatedContext("demo-fang", { role: "employee", isDemo: true, demoDatasetId: "demo-set" }).storage();
+    const wrongDemoStorage = env.authenticatedContext("demo-fang", { role: "employee", isDemo: true, demoDatasetId: "another-demo-set" }).storage();
+    const normalPresidentStorage = env.authenticatedContext("president", { role: "president_viewer" }).storage();
+    await assertSucceeds(getBytes(ref(demoFangStorage, path)));
+    await assertSucceeds(uploadBytes(ref(demoFangStorage, "demo/demo-set/president-instructions/new-announcement/demo-fang/employee-file.pdf"), new Uint8Array([0x25, 0x50, 0x44, 0x46]), { contentType: "application/pdf" }));
+    await assertFails(getBytes(ref(wrongDemoStorage, path)));
+    await assertFails(getBytes(ref(normalPresidentStorage, path)));
   });
 
   it("allows only the owner to upload product JPEGs and all normal users to read them", async () => {

@@ -17,13 +17,15 @@ import {
   ref,
   uploadBytes
 } from "firebase/storage";
-import { db, functions, storage } from "../firebase";
+import { db, functions, prepareCallableSecurityContext, storage } from "../firebase";
 import { compressImage, validateFiles, validHttpUrl } from "../lib/files";
 import { calendarEventPayload } from "../lib/calendar";
+import { invokeWithVerifiedSecurityContext } from "../lib/callable";
 import { safeFilename } from "../lib/format";
 import { compressProductImage, fileToDataUrl } from "../lib/product";
 import type {
   Attachment,
+  AnnouncementRecipient,
   AttendanceRecord,
   AuditEvent,
   CalendarEvent,
@@ -34,11 +36,14 @@ import type {
   CompanyDayType,
   CompanyHolidayOverride,
   DailyReport,
+  DailyReportAutomation,
   DutyDefinition,
   EmploymentBasis,
   EvidenceReference,
   MonthlyEvidencePackage,
   NonWorkingReason,
+  PresidentInstruction,
+  InstructionPriority,
   Product,
   ProductFacts,
   ProductImageAnalysis,
@@ -92,6 +97,124 @@ export function watchReports(
   return onSnapshot(query(collection(db, "dailyReports"), ...constraints), (snapshot) => {
     callback(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DailyReport));
   }, (error) => onError?.(error));
+}
+
+export function watchDailyReportAutomations(
+  userId: string | null,
+  canViewAll: boolean,
+  callback: (rows: DailyReportAutomation[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const constraints: QueryConstraint[] = [];
+  if (userId && !canViewAll) constraints.push(where("userId", "==", userId));
+  constraints.push(orderBy("workDate", "desc"));
+  return onSnapshot(query(collection(db, "dailyReportAutomations"), ...constraints), (snapshot) => {
+    callback(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DailyReportAutomation));
+  }, (error) => onError?.(error));
+}
+
+export function watchPresidentInstructions(
+  profile: UserProfile,
+  callback: (rows: PresidentInstruction[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const scopeConstraints: QueryConstraint[] = [where("isDemo", "==", profile.isDemo === true)];
+  if (profile.isDemo === true) scopeConstraints.push(where("demoDatasetId", "==", profile.demoDatasetId ?? "__missing_demo_dataset__"));
+  const rows = new Map<"incoming" | "sent", PresidentInstruction[]>();
+  const emit = () => {
+    const merged = new Map<string, PresidentInstruction>();
+    for (const group of rows.values()) for (const item of group) merged.set(item.id, item);
+    callback([...merged.values()].sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
+  };
+  const subscribe = (kind: "incoming" | "sent", audience: QueryConstraint) => onSnapshot(
+    query(collection(db, "presidentInstructions"), audience, ...scopeConstraints, orderBy("createdAt", "desc")),
+    (snapshot) => {
+      rows.set(kind, snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as PresidentInstruction));
+      emit();
+    },
+    (error) => onError?.(error)
+  );
+  const unsubscribeIncoming = subscribe("incoming", where("recipientIds", "array-contains", profile.uid));
+  const unsubscribeSent = subscribe("sent", where("authorId", "==", profile.uid));
+  return () => {
+    unsubscribeIncoming();
+    unsubscribeSent();
+  };
+}
+
+export async function getAnnouncementRecipients(): Promise<AnnouncementRecipient[]> {
+  const call = httpsCallable<Record<string, never>, { recipients: AnnouncementRecipient[] }>(functions, "listAnnouncementRecipients");
+  return (await call({})).data.recipients;
+}
+
+export interface PresidentInstructionInput {
+  instructionId: string;
+  title: string;
+  body: string;
+  priority: InstructionPriority;
+  dueDate: string;
+  recipientIds: string[];
+  attachments: Attachment[];
+}
+
+export async function createPresidentInstruction(input: PresidentInstructionInput): Promise<{ id: string; translationStatus: "completed" | "failed" }> {
+  const call = httpsCallable<PresidentInstructionInput, { id: string; translationStatus: "completed" | "failed" }>(functions, "createPresidentInstruction", { timeout: 120_000 });
+  return (await call(input)).data;
+}
+
+export async function acknowledgePresidentInstruction(instructionId: string): Promise<void> {
+  const call = httpsCallable<{ instructionId: string }, { ok: true }>(functions, "acknowledgePresidentInstruction");
+  await call({ instructionId });
+}
+
+export async function completePresidentInstruction(instructionId: string, completionNote: string): Promise<void> {
+  const call = httpsCallable<{ instructionId: string; completionNote: string }, { ok: true }>(functions, "completePresidentInstruction");
+  await call({ instructionId, completionNote });
+}
+
+export async function cancelPresidentInstruction(instructionId: string, reason: string): Promise<void> {
+  const call = httpsCallable<{ instructionId: string; reason: string }, { ok: true }>(functions, "cancelPresidentInstruction");
+  await call({ instructionId, reason });
+}
+
+export async function replacePresidentInstruction(instructionId: string, reason: string, replacement: PresidentInstructionInput): Promise<{ id: string; translationStatus: "completed" | "failed" }> {
+  const call = httpsCallable<{ instructionId: string; reason: string; replacement: PresidentInstructionInput }, { id: string; translationStatus: "completed" | "failed" }>(functions, "replacePresidentInstruction", { timeout: 120_000 });
+  return (await call({ instructionId, reason, replacement })).data;
+}
+
+export async function retryPresidentInstructionTranslation(instructionId: string): Promise<void> {
+  const call = httpsCallable<{ instructionId: string }, { ok: true }>(functions, "retryPresidentInstructionTranslation", { timeout: 120_000 });
+  await call({ instructionId });
+}
+
+export async function uploadPresidentInstructionFiles(profile: UserProfile, instructionId: string, files: File[], existing: Attachment[]): Promise<Attachment[]> {
+  const preparedFiles: File[] = [];
+  for (const file of files) preparedFiles.push(file.type.startsWith("image/") || /\.hei[cf]$/i.test(file.name) ? await compressProductImage(file) : file);
+  const validation = validateFiles(preparedFiles, existing);
+  if (validation) throw new Error(validation);
+  const output: Attachment[] = [];
+  for (const file of preparedFiles) {
+    const id = crypto.randomUUID();
+    const prefix = profile.isDemo
+      ? `demo/${profile.demoDatasetId}/president-instructions/${instructionId}/${profile.uid}`
+      : `president-instructions/${instructionId}/${profile.uid}`;
+    const path = `${prefix}/${id}-${safeFilename(file.name)}`;
+    const objectRef = ref(storage, path);
+    await uploadBytes(objectRef, file, {
+      contentType: file.type,
+      customMetadata: {
+        ownerId: profile.uid,
+        instructionId,
+        ...(profile.isDemo ? { isDemo: "true", demoDatasetId: profile.demoDatasetId || "" } : {})
+      }
+    });
+    output.push({ id, name: file.name, contentType: file.type, size: file.size, storagePath: path });
+  }
+  return output;
+}
+
+export function presidentInstructionAttachmentUrl(storagePath: string): Promise<string> {
+  return getDownloadURL(ref(storage, storagePath));
 }
 
 export function watchAiUsageEvents(
@@ -328,12 +451,18 @@ export async function clockIn(workMode: WorkMode, manual?: ManualClockInDetails)
     { workMode: WorkMode; startedAt?: string; reason?: string },
     { id: string }
   >(functions, "clockIn");
-  return (await call({ workMode, ...manual })).data.id;
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ workMode, ...manual })
+  )).data.id;
 }
 
 export async function clockOut(): Promise<void> {
   const call = httpsCallable<Record<string, never>, { id: string }>(functions, "clockOut");
-  await call({});
+  await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({})
+  );
 }
 
 export async function correctAttendance(input: {
@@ -344,7 +473,10 @@ export async function correctAttendance(input: {
   correctionKind?: "record_edit" | "missed_clock_out";
 }): Promise<void> {
   const call = httpsCallable<typeof input, { ok: true }>(functions, "correctAttendance");
-  await call(input);
+  await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call(input)
+  );
 }
 
 export async function submitReport(input: {
@@ -356,7 +488,10 @@ export async function submitReport(input: {
   correctionReason?: string;
 }): Promise<{ id: string; translationStatus: string }> {
   const call = httpsCallable<typeof input, { id: string; translationStatus: string }>(functions, "submitDailyReport", { timeout: 120_000 });
-  return (await call(input)).data;
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call(input)
+  )).data;
 }
 
 export async function retryTranslation(reportId: string): Promise<void> {
@@ -367,6 +502,11 @@ export async function retryTranslation(reportId: string): Promise<void> {
 export async function markReviewed(entityType: "attendance" | "daily_report", entityId: string): Promise<void> {
   const call = httpsCallable<{ entityType: string; entityId: string }, { ok: true }>(functions, "markReviewed");
   await call({ entityType, entityId });
+}
+
+export async function addDailyReportComment(reportId: string, body: string): Promise<void> {
+  const call = httpsCallable<{ reportId: string; body: string }, { id: string }>(functions, "addDailyReportComment");
+  await call({ reportId, body });
 }
 
 export async function uploadReportFiles(profile: UserProfile, reportKey: string, files: File[], existing: Attachment[]): Promise<Attachment[]> {

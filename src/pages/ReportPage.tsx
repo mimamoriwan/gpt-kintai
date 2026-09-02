@@ -29,17 +29,18 @@ const defaultTags = [
   { id: "other", ja: "その他", zh: "其他" }
 ] as const;
 
-export function ReportPage({ reports, categories, attendance, editing, onDone, notify }: {
+export function ReportPage({ reports, categories, attendance, editing, initialDate, onDone, notify }: {
   reports: DailyReport[];
   categories: Category[];
   attendance: AttendanceRecord[];
   editing: DailyReport | null;
+  initialDate?: string;
   onDone: () => void;
   notify: (type: "success" | "error", message: string) => void;
 }) {
   const { profile } = useAuth();
   const { locale, t } = useI18n();
-  const [reportDate, setReportDate] = useState(editing?.reportDate || todayJst());
+  const [reportDate, setReportDate] = useState(editing?.reportDate || initialDate || todayJst());
   const [sourceLanguage, setSourceLanguage] = useState<ReportLanguage>(editing?.sourceLanguage || (locale === "zh-CN" ? "zh-CN" : "ja"));
   const [fields, setFields] = useState<ReportFields>(editing ? pickFields(editing) : emptyFields);
   const [attachments, setAttachments] = useState<Attachment[]>(editing?.attachments || []);
@@ -62,7 +63,8 @@ export function ReportPage({ reports, categories, attendance, editing, onDone, n
   const workMemoRef = useRef<HTMLTextAreaElement>(null);
   const workFileRef = useRef<HTMLInputElement>(null);
   const existingForDate = useMemo(() => reports.find((item) => item.userId === profile?.uid && item.reportDate === reportDate), [profile?.uid, reportDate, reports]);
-  const activeReport = editing || existingForDate || null;
+  const currentEditingReport = editing ? reports.find((item) => item.id === editing.id) || editing : null;
+  const activeReport = currentEditingReport || existingForDate || null;
   const todayAttendance = useMemo(() => attendance.find((item) => item.userId === profile?.uid && item.workDate === reportDate), [attendance, profile?.uid, reportDate]);
 
   const availableTags = useMemo(() => {
@@ -94,7 +96,7 @@ export function ReportPage({ reports, categories, attendance, editing, onDone, n
     setAttachments(activeReport.attachments || []);
     setReason("");
     setHasTravel(Boolean(activeReport.area || activeReport.destinations));
-  }, [activeReport?.id]);
+  }, [activeReport?.id, activeReport?.updatedAt]);
 
   useEffect(() => {
     if (!activeReport) setHasTravel(todayAttendance?.workMode === "business_trip");
@@ -264,23 +266,23 @@ export function ReportPage({ reports, categories, attendance, editing, onDone, n
     event.preventDefault();
     if (!profile) return;
     const target = activeReport;
-    if (target && !reason.trim()) {
+    if (target && target.status !== "provisional" && !reason.trim()) {
       notify("error", locale === "ja" ? "提出済み日報の修正理由を入力してください。" : "请输入修改已提交日报的原因。");
       return;
     }
     setBusy(true);
     try {
       const normalizedFields = hasTravel ? fields : { ...fields, area: "", destinations: "" };
-      const result = await submitReport({ reportId: target?.id, reportDate, sourceLanguage, fields: normalizedFields, attachments, correctionReason: target ? reason : undefined });
+      const result = await submitReport({ reportId: target?.id, reportDate, sourceLanguage, fields: normalizedFields, attachments, correctionReason: target && target.status !== "provisional" ? reason : undefined });
       notify("success", result.translationStatus === "failed" ? (locale === "ja" ? "日報を保存しました。日本語化は後で再実行できます。" : "日报已保存，日语生成可稍后重试。") : t("success"));
       onDone();
-    } catch (error) { notify("error", friendlyError(error, t("error"))); }
+    } catch (error) { notify("error", reportSubmitError(error, locale, t("error"))); }
     finally { setBusy(false); }
   }
 
   return (
     <div className="page report-page">
-      <div className="page-heading"><div><span className="eyebrow">DAILY WORK REPORT</span><h1>{activeReport ? t("editSubmitted") : t("dailyReport")}</h1><p>{locale === "ja" ? "記録する日を最初に選んでください" : "请先选择要记录的日期"}</p></div></div>
+      <div className="page-heading"><div><span className="eyebrow">DAILY WORK REPORT</span><h1>{activeReport?.status === "provisional" ? (locale === "ja" ? "自動作成された日報を確認" : "确认自动生成的日报") : activeReport ? t("editSubmitted") : t("dailyReport")}</h1><p>{activeReport?.status === "provisional" ? (locale === "ja" ? "内容を確認・修正して正式提出してください" : "请确认并修改内容后正式提交") : (locale === "ja" ? "記録する日を最初に選んでください" : "请先选择要记录的日期")}</p></div></div>
       <section className="card report-date-card">
         <label>
           <span><CalendarDays size={18} />{locale === "ja" ? "日報の日付" : "日报日期"}</span>
@@ -288,7 +290,7 @@ export function ReportPage({ reports, categories, attendance, editing, onDone, n
         </label>
         <div>
           <strong>{formatDate(reportDate, locale === "ja" ? "ja-JP" : "zh-CN")}</strong>
-          {activeReport && <span className="status-chip amber">{locale === "ja" ? "提出済み・修正中" : "已提交・修改中"}</span>}
+          {activeReport && <span className={`status-chip ${activeReport.status === "provisional" ? "blue" : "amber"}`}>{activeReport.status === "provisional" ? (locale === "ja" ? "自動作成済み・本人未確認" : "已自动生成・待本人确认") : (locale === "ja" ? "提出済み・修正中" : "已提交・修改中")}</span>}
         </div>
       </section>
       <section className="card work-log-card">
@@ -313,7 +315,7 @@ export function ReportPage({ reports, categories, attendance, editing, onDone, n
         {workLogs.length > 0 && <div className="work-log-list">{workLogs.map((item) => <div className={`work-log-entry${editingWorkLogId === item.id ? " editing" : ""}`} key={item.id}><span className="tag soft">{item.tagLabel}</span><div className="work-log-content"><p>{item.text}</p>{Boolean(item.attachments?.length) && <div className="work-log-saved-attachments">{item.attachments?.map((attachment) => <a key={attachment.id} href={attachment.linkUrl || attachment.downloadUrl} target="_blank" rel="noreferrer">{attachment.linkUrl ? <Link2 size={14} /> : <Paperclip size={14} />}{attachment.name}</a>)}</div>}</div><time>{formatTime(item.createdAt)}</time><div className="work-log-entry-actions"><button className="work-log-edit" type="button" aria-label={locale === "ja" ? "編集" : "编辑"} onClick={() => editWorkLog(item)}><Pencil size={16} /></button><button className="work-log-delete" type="button" aria-label={locale === "ja" ? "削除" : "删除"} onClick={() => void deleteWorkLog(item.id)}><Trash2 size={16} /></button></div></div>)}</div>}
         <button type="button" className="button ai-draft-button" onClick={() => void buildDraft()} disabled={aiBusy || !workLogs.length}><WandSparkles size={19} />{aiBusy ? (locale === "ja" ? "下書きを作成中…" : "正在生成草稿…") : (locale === "ja" ? "AIでメモ・添付から日報を作成" : "用AI根据备忘和附件生成日报")}</button>
         {draftMeta && <div className="ai-draft-result" role="status"><strong>{draftMeta.cached ? (locale === "ja" ? "保存済み下書きを再利用" : "已复用保存的草稿") : (locale === "ja" ? "AIで新しい下書きを作成" : "AI已生成新草稿")}</strong><span>{locale === "ja" ? `AIへ送信した添付資料：${draftMeta.analyzedAttachmentCount}件${draftMeta.skippedLinkCount ? `／未解析URL：${draftMeta.skippedLinkCount}件` : ""}` : `发送给AI的附件：${draftMeta.analyzedAttachmentCount}个${draftMeta.skippedLinkCount ? `／未分析URL：${draftMeta.skippedLinkCount}个` : ""}`}</span>{Boolean(draftMeta.analyzedAttachmentNames?.length) && <small>{locale === "ja" ? "送信済み：" : "已发送："}{draftMeta.analyzedAttachmentNames?.join("、")}</small>}</div>}
-        <p className="ai-privacy-note">{locale === "ja" ? "このボタンを押すと、タグ・業務メモ・保存した添付ファイルをOpenAI APIへ送信して下書きを作ります。URLリンクは自動解析しません。生成した下書きは再利用のため保存し、同じ内容ではAPIを再実行しません。現在、生成回数の上限は設けていません。" : "点击此按钮后，会把标签、工作备忘和已保存的附件发送到OpenAI API以生成草稿。不会自动分析URL链接。生成的草稿会保存以便复用，相同内容不会再次调用API。目前不限制生成次数。"}</p>
+        <p className="ai-privacy-note">{locale === "ja" ? "タグ・業務メモ・保存した添付ファイルは、終業後の自動仮作成またはこのボタンでの作成時にOpenAI APIへ送信されます。URLリンクは自動解析しません。生成した下書きは再利用のため保存し、同じ内容ではAPIを再実行しません。" : "标签、工作记录及已保存附件会在结束工作后的自动临时生成或点击此按钮时发送给OpenAI API。不会自动分析URL链接。生成结果会保存，相同内容不会再次调用API。"}</p>
       </section>
 
       <form className="card report-form" onSubmit={submit} id="report-details">
@@ -332,8 +334,8 @@ export function ReportPage({ reports, categories, attendance, editing, onDone, n
           <label><span>{t("nextPlan")} <small>{locale === "ja" ? "（任意）" : "（选填）"}</small></span><textarea rows={3} value={fields.nextPlan} onChange={(e) => field("nextPlan", e.target.value)} placeholder={locale === "ja" ? "業務メモに予定があればAIが抽出します" : "工作记录中如有计划，AI会自动提取"} /></label>
         </div>
         {attachments.length > 0 && <div className="form-section legacy-report-attachments"><div className="label-row"><span>{locale === "ja" ? "以前の日報全体に添付された資料" : "以前附加到整份日报的资料"}</span><small>{locale === "ja" ? "既存資料を保持しています" : "保留已有资料"}</small></div><div className="attachment-list">{attachments.map((item) => <div key={item.id}>{item.linkUrl ? <Link2 size={18} /> : item.contentType.startsWith("image/") ? <Image size={18} /> : <FileText size={18} />}<a href={item.linkUrl || item.downloadUrl} target="_blank" rel="noreferrer">{item.name}</a><button type="button" onClick={() => setAttachments((current) => current.filter((entry) => entry.id !== item.id))}><Trash2 size={17} /></button></div>)}</div><p className="storage-note">{locale === "ja" ? "今後の資料は、上の各業務報告に添付してください。" : "今后的资料请附加到上方各条工作报告中。"}</p></div>}
-        {activeReport && <div className="form-section"><label><span>{t("correctionReason")} <b>*</b></span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={locale === "ja" ? "例：訪問先名の入力誤りを訂正" : "例：更正访问单位名称"} required /></label><p className="history-note">{locale === "ja" ? "修正前の内容と修正理由は履歴として保存されます。" : "修改前的内容和原因将保存在历史记录中。"}</p></div>}
-        <div className="form-footer"><button type="button" className="button ghost" onClick={onDone}>{t("cancel")}</button><button className="button primary large" disabled={busy}>{busy ? t("submitting") : t("saveSubmit")}</button></div>
+        {activeReport?.status !== "provisional" && activeReport && <div className="form-section"><label><span>{t("correctionReason")} <b>*</b></span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={locale === "ja" ? "例：訪問先名の入力誤りを訂正" : "例：更正访问单位名称"} required /></label><p className="history-note">{locale === "ja" ? "修正前の内容と修正理由は履歴として保存されます。" : "修改前的内容和原因将保存在历史记录中。"}</p></div>}
+        <div className="form-footer"><button type="button" className="button ghost" onClick={onDone}>{t("cancel")}</button><button className="button primary large" disabled={busy}>{busy ? t("submitting") : activeReport?.status === "provisional" ? (locale === "ja" ? "内容を確認して正式提出" : "确认内容并正式提交") : t("saveSubmit")}</button></div>
       </form>
     </div>
   );
@@ -365,4 +367,21 @@ function pickFields(report: DailyReport): ReportFields {
 function friendlyError(error: unknown, fallback: string) {
   if (error instanceof Error) return error.message.replace(/^FirebaseError:\s*/, "");
   return fallback;
+}
+
+function reportSubmitError(error: unknown, locale: "ja" | "zh-CN", fallback: string): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
+  if (code === "unauthenticated" || code === "functions/unauthenticated") {
+    return locale === "ja"
+      ? "ログイン状態を更新できませんでした。通信状態を確認し、もう一度保存してください。"
+      : "无法更新登录状态。请检查网络后再次保存。";
+  }
+  if (code.startsWith("app-check/")) {
+    return locale === "ja"
+      ? "アプリ認証を確認できませんでした。通信状態を確認し、もう一度保存してください。"
+      : "无法验证应用。请检查网络后再次保存。";
+  }
+  return friendlyError(error, fallback);
 }

@@ -38,6 +38,7 @@ describe("方さんデモデータ fixture", () => {
       weeklyPlans: 5,
       weeklyReports: 4,
       weeklyMeetings: 4,
+      presidentInstructions: 3,
       unreviewedDailyReports: 1
     });
     expect(new Set(documents.map(({ path }) => path)).size).toBe(documents.length);
@@ -49,6 +50,7 @@ describe("方さんデモデータ fixture", () => {
     expect(byRoot("weeklyPlans")).toHaveLength(5);
     expect(byRoot("weeklyReports")).toHaveLength(4);
     expect(byRoot("weeklyMeetings")).toHaveLength(4);
+    expect(byRoot("presidentInstructions")).toHaveLength(3);
   });
 
   it("marks every document and the Auth account as the same demo dataset", () => {

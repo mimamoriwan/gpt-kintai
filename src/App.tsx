@@ -18,13 +18,14 @@ import {
   watchEmploymentBases, watchEvidenceReferences, watchMonthlyPackages, watchNonWorkingReasons,
   watchProductObservations, watchProductRevisions, watchProducts, watchRenewalChecklists,
   watchReports, watchSourceDocumentReferences, watchUsers, watchWeeklyMeetings,
-  watchWeeklyPlans, watchWeeklyReports
+  watchWeeklyPlans, watchWeeklyReports, watchPresidentInstructions, getAnnouncementRecipients,
+  watchDailyReportAutomations
 } from "./services/api";
 import type {
-  AttendanceRecord, Category, CompanyHolidayOverride, DailyReport, DutyDefinition,
+  AttendanceRecord, Category, CompanyHolidayOverride, DailyReport, DailyReportAutomation, DutyDefinition,
   EmploymentBasis, EvidenceReference, MonthlyEvidencePackage, NavSection, NonWorkingReason,
   Product, ProductObservation, ProductRevision, RenewalChecklist, SourceDocumentReference,
-  UserProfile, WeeklyMeetingRecord, WeeklyPlan, WeeklyReport
+  AnnouncementRecipient, UserProfile, WeeklyMeetingRecord, WeeklyPlan, WeeklyReport, PresidentInstruction
 } from "./types";
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
   const [section, setSection] = useState<NavSection>("home");
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [reports, setReports] = useState<DailyReport[]>([]);
+  const [dailyReportAutomations, setDailyReportAutomations] = useState<DailyReportAutomation[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [holidayOverrides, setHolidayOverrides] = useState<CompanyHolidayOverride[]>([]);
@@ -48,7 +50,10 @@ export default function App() {
   const [evidenceReferences, setEvidenceReferences] = useState<EvidenceReference[]>([]);
   const [monthlyPackages, setMonthlyPackages] = useState<MonthlyEvidencePackage[]>([]);
   const [renewalChecklists, setRenewalChecklists] = useState<RenewalChecklist[]>([]);
+  const [presidentInstructions, setPresidentInstructions] = useState<PresidentInstruction[]>([]);
+  const [announcementRecipients, setAnnouncementRecipients] = useState<AnnouncementRecipient[]>([]);
   const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
+  const [initialReportDate, setInitialReportDate] = useState<string | undefined>();
   const [toast, setToast] = useState<ToastState | null>(null);
   const canViewAll = profile?.role === "employee_manager" || profile?.role === "president_viewer";
 
@@ -62,6 +67,8 @@ export default function App() {
     const unsubs = [
       watchAttendance(profile.uid, canViewAll, setAttendance, (error) => notify("error", error.message)),
       watchReports(profile.uid, canViewAll, setReports, (error) => notify("error", error.message)),
+      watchDailyReportAutomations(profile.uid, canViewAll, setDailyReportAutomations, (error) => notify("error", error.message)),
+      watchPresidentInstructions(profile, setPresidentInstructions, (error) => notify("error", error.message)),
       watchProducts(profile, canViewAll, setProducts, (error) => notify("error", error.message)),
       watchProductObservations(profile, canViewAll, setProductObservations, (error) => notify("error", error.message)),
       watchDutyDefinitions(setDutyDefinitions, (error) => notify("error", error.message)),
@@ -83,11 +90,24 @@ export default function App() {
   }, [canViewAll, profile]);
 
   useEffect(() => {
+    if (!profile) {
+      setAnnouncementRecipients([]);
+      return;
+    }
+    let active = true;
+    void getAnnouncementRecipients()
+      .then((rows) => { if (active) setAnnouncementRecipients(rows); })
+      .catch((error) => { if (active) notify("error", error instanceof Error ? error.message : String(error)); });
+    return () => { active = false; };
+  }, [notify, profile]);
+
+  useEffect(() => {
     if (profile?.uid) setSection("home");
   }, [profile?.uid]);
 
   const scopedAttendance = useMemo(() => profile ? filterDemoScope(attendance, profile, false) : [], [attendance, profile]);
   const scopedReports = useMemo(() => profile ? filterDemoScope(reports, profile, false) : [], [profile, reports]);
+  const scopedDailyReportAutomations = useMemo(() => profile ? filterDemoScope(dailyReportAutomations, profile, false) : [], [dailyReportAutomations, profile]);
   const scopedUsers = useMemo(() => profile ? filterDemoScope(users.length ? users : [profile], profile, false) : [], [profile, users]);
   const scopedProducts = useMemo(() => profile ? filterDemoScope(products, profile, false) : [], [products, profile]);
   const scopedObservations = useMemo(() => profile ? filterDemoScope(productObservations, profile, false) : [], [productObservations, profile]);
@@ -98,21 +118,24 @@ export default function App() {
   const scopedNonWorkingReasons = useMemo(() => profile ? filterDemoScope(nonWorkingReasons, profile, false) : [], [nonWorkingReasons, profile]);
   const scopedEvidenceReferences = useMemo(() => profile ? filterDemoScope(evidenceReferences, profile, false) : [], [evidenceReferences, profile]);
   const scopedMonthlyPackages = useMemo(() => profile ? filterDemoScope(monthlyPackages, profile, false) : [], [monthlyPackages, profile]);
+  const scopedPresidentInstructions = useMemo(() => profile ? filterDemoScope(presidentInstructions, profile, false) : [], [presidentInstructions, profile]);
   const sortedUsers = useMemo(() => [...scopedUsers].sort((a, b) => a.displayName.localeCompare(b.displayName, "ja")), [scopedUsers]);
 
   if (loading) return <div className="full-loader"><LoaderCircle className="spin" size={34} /><span>GyoumuLog</span></div>;
   if (!user || !profile || !profile.active) return <LoginPage />;
 
-  function navigate(next: NavSection) { setEditingReport(null); setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function navigate(next: NavSection) { setEditingReport(null); setInitialReportDate(undefined); setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function openReportDate(reportDate: string) { setEditingReport(null); setInitialReportDate(reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function openExistingReport(report: DailyReport) { setEditingReport(report); setInitialReportDate(report.reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
 
   return (
-    <Shell section={section} onSection={navigate}>
-      {section === "home" && <HomePage attendance={scopedAttendance} reports={scopedReports} holidayOverrides={holidayOverrides} onReport={() => navigate("report")} notify={notify} />}
-      {section === "report" && <ReportPage reports={scopedReports} categories={categories} attendance={scopedAttendance} editing={editingReport} onDone={() => navigate("records")} notify={notify} />}
-      {section === "records" && <RecordsPage attendance={scopedAttendance} reports={scopedReports} categories={categories} onEditReport={(report) => { setEditingReport(report); setSection("report"); }} notify={notify} />}
+    <Shell section={section} onSection={navigate} instructions={scopedPresidentInstructions} users={announcementRecipients} notify={notify}>
+      {section === "home" && <HomePage attendance={scopedAttendance} reports={scopedReports} automations={scopedDailyReportAutomations} holidayOverrides={holidayOverrides} instructions={scopedPresidentInstructions} users={announcementRecipients} onReport={() => navigate("report")} onReportDate={openReportDate} onConfirmReport={openExistingReport} notify={notify} />}
+      {section === "report" && <ReportPage reports={scopedReports} categories={categories} attendance={scopedAttendance} editing={editingReport} initialDate={initialReportDate} onDone={() => navigate("records")} notify={notify} />}
+      {section === "records" && <RecordsPage attendance={scopedAttendance} reports={scopedReports} categories={categories} onEditReport={openExistingReport} notify={notify} />}
       {section === "products" && <ProductsPage products={scopedProducts} observations={scopedObservations} revisions={scopedProductRevisions} users={sortedUsers} notify={notify} />}
       {section === "workflow" && <WorkflowPage users={sortedUsers} attendance={scopedAttendance} reports={scopedReports} dutyDefinitions={dutyDefinitions} employmentBases={employmentBases} sourceDocuments={sourceDocuments} weeklyPlans={scopedWeeklyPlans} weeklyReports={scopedWeeklyReports} weeklyMeetings={scopedWeeklyMeetings} nonWorkingReasons={scopedNonWorkingReasons} evidenceReferences={scopedEvidenceReferences} monthlyPackages={scopedMonthlyPackages} renewalChecklists={renewalChecklists} notify={notify} />}
-      {section === "admin" && <AdminPage attendance={scopedAttendance} reports={scopedReports} users={sortedUsers} categories={categories} holidayOverrides={holidayOverrides} products={scopedProducts} productObservations={scopedObservations} notify={notify} />}
+      {section === "admin" && <AdminPage attendance={scopedAttendance} reports={scopedReports} automations={scopedDailyReportAutomations} users={sortedUsers} categories={categories} holidayOverrides={holidayOverrides} products={scopedProducts} productObservations={scopedObservations} notify={notify} />}
       {section === "help" && <HelpPage />}
       {section === "settings" && <SettingsPage />}
       <Toast toast={toast} onClose={() => setToast(null)} />

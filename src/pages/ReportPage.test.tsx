@@ -150,12 +150,53 @@ describe("ReportPage work log attachments", () => {
 
     render(<ReportPage reports={[]} categories={[]} attendance={[]} editing={null} onDone={vi.fn()} notify={notify} />);
 
-    expect(screen.getByText(/保存した添付ファイルをOpenAI APIへ送信/)).toBeInTheDocument();
+    expect(screen.getByText(/保存した添付ファイルは.*OpenAI APIへ送信/)).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "AIでメモ・添付から日報を作成" }));
 
     await waitFor(() => expect(apiMocks.generateReportDraft).toHaveBeenCalled());
     expect(await screen.findByText("保存済み下書きを再利用")).toBeInTheDocument();
     expect(screen.getByText(/送信済み：資料.pdf/)).toBeInTheDocument();
     expect(notify).toHaveBeenCalledWith("success", expect.stringContaining("API再実行なし"));
+  });
+
+  it("confirms an automatically created provisional report without a correction reason", async () => {
+    const timestamp = {
+      toDate: () => new Date("2026-09-01T08:00:00.000Z"),
+      toMillis: () => new Date("2026-09-01T08:00:00.000Z").getTime()
+    };
+    const provisional = {
+      id: "auto-report-1",
+      userId: "employee-1",
+      userName: "テスト社員",
+      reportDate: "2026-09-01",
+      sourceLanguage: "ja",
+      category: "社内業務",
+      area: "",
+      destinations: "",
+      activities: "【社内業務】\n資料を整理した。",
+      findings: "",
+      nextPlan: "",
+      attachments: [],
+      status: "provisional",
+      creationMethod: "auto_clock_out",
+      translationStatus: "not_required",
+      translationAttempts: 0,
+      reviewStatus: "unreviewed",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    } as const;
+    apiMocks.submitReport.mockResolvedValueOnce({ id: provisional.id, translationStatus: "not_required" });
+
+    render(<ReportPage reports={[provisional as never]} categories={[]} attendance={[]} editing={provisional as never} onDone={vi.fn()} notify={vi.fn()} />);
+
+    expect(screen.getByText("自動作成済み・本人未確認")).toBeInTheDocument();
+    expect(screen.queryByText("correctionReason")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "内容を確認して正式提出" }));
+
+    await waitFor(() => expect(apiMocks.submitReport).toHaveBeenCalledWith(expect.objectContaining({
+      reportId: "auto-report-1",
+      correctionReason: undefined
+    })));
   });
 });
