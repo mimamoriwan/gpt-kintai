@@ -2,7 +2,34 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() { return request.auth != null; }
-    function role() { return signedIn() && request.auth.token.role is string ? request.auth.token.role : 'employee'; }
+    // The current server-owned profile is authoritative, including for stale
+    // tokens and privileged roles. Registered accounts without setup fields keep access.
+    // Completing setup also invalidates sessions authenticated with the old or
+    // temporary password. A token must come from a later sign-in, not a refresh.
+    function passwordSessionAllowed(profile) {
+      return (!profile.keys().hasAny(['passwordChangeRequired']) || profile.passwordChangeRequired != true)
+        && (!profile.keys().hasAny(['passwordAuthTimeAfter'])
+          || (profile.passwordAuthTimeAfter is number
+            && request.auth.token.keys().hasAny(['auth_time'])
+            && request.auth.token.auth_time is number
+            && request.auth.token.auth_time > profile.passwordAuthTimeAfter));
+    }
+    function workProfile() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function validWorkProfile(profile) {
+      return profile.keys().hasAll(['uid', 'active', 'role'])
+        && profile.uid == request.auth.uid
+        && profile.active == true
+        && profile.role in ['employee', 'employee_manager', 'president_viewer'];
+    }
+    function canAccessWork() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && validWorkProfile(workProfile())
+        && passwordSessionAllowed(workProfile());
+    }
+    function role() { return canAccessWork() ? workProfile().role : ''; }
     function viewer() { return role() == 'employee_manager' || role() == 'president_viewer'; }
     // Existing production accounts do not necessarily have an isDemo claim.
     function demoAccount() {
@@ -43,57 +70,60 @@ service firebase.storage {
         && (request.auth.uid == instructionData(instructionId).authorId
           || request.auth.uid in instructionData(instructionId).recipientIds);
     }
+    // COCO file bytes use the authenticated server gateway; direct SDK reads,
+    // uploads, replacement and deletion must never bypass its checks or audit.
+    match /coco-documents/{file=**} { allow read, write: if false; }
     match /reports/{uid}/{reportId}/{fileName} {
-      allow read: if signedIn() && (request.auth.uid == uid || viewer());
-      allow create: if signedIn() && !demoAccount() && role() != 'president_viewer' && request.auth.uid == uid && allowedType() && allowedSize();
+      allow read: if canAccessWork() && (signedIn() && (request.auth.uid == uid || viewer()));
+      allow create: if canAccessWork() && (signedIn() && !demoAccount() && role() != 'president_viewer' && request.auth.uid == uid && allowedType() && allowedSize());
       allow update, delete: if false;
     }
     match /products/{uid}/{observationId}/{fileName} {
-      allow read: if signedIn() && !demoAccount();
-      allow create: if signedIn()
+      allow read: if canAccessWork() && (signedIn() && !demoAccount());
+      allow create: if canAccessWork() && (signedIn()
         && !demoAccount()
         && role() != 'president_viewer'
         && request.auth.uid == uid
         && request.resource.contentType == 'image/jpeg'
-        && request.resource.size <= 1024 * 1024;
+        && request.resource.size <= 1024 * 1024);
       allow update, delete: if false;
     }
     match /president-instructions/{instructionId}/{uid}/{fileName} {
-      allow read: if canReadNormalInstruction(instructionId);
-      allow create: if signedIn()
+      allow read: if canAccessWork() && (canReadNormalInstruction(instructionId));
+      allow create: if canAccessWork() && (signedIn()
         && !demoAccount()
         && request.auth.uid == uid
         && allowedType()
-        && allowedSize();
+        && allowedSize());
       allow update, delete: if false;
     }
     match /demo/{datasetId}/reports/{uid}/{reportId}/{fileName} {
-      allow read: if viewer() || (demoAccount() && request.auth.uid == uid && demoDataset() == datasetId);
-      allow create: if demoAccount()
+      allow read: if canAccessWork() && (viewer() || (demoAccount() && request.auth.uid == uid && demoDataset() == datasetId));
+      allow create: if canAccessWork() && (demoAccount()
         && role() != 'president_viewer'
         && request.auth.uid == uid
         && demoDataset() == datasetId
         && allowedType()
-        && allowedSize();
+        && allowedSize());
       allow update, delete: if false;
     }
     match /demo/{datasetId}/products/{uid}/{observationId}/{fileName} {
-      allow read: if viewer() || (demoAccount() && demoDataset() == datasetId);
-      allow create: if demoAccount()
+      allow read: if canAccessWork() && (viewer() || (demoAccount() && demoDataset() == datasetId));
+      allow create: if canAccessWork() && (demoAccount()
         && role() != 'president_viewer'
         && request.auth.uid == uid
         && demoDataset() == datasetId
         && request.resource.contentType == 'image/jpeg'
-        && request.resource.size <= 1024 * 1024;
+        && request.resource.size <= 1024 * 1024);
       allow update, delete: if false;
     }
     match /demo/{datasetId}/president-instructions/{instructionId}/{uid}/{fileName} {
-      allow read: if canReadDemoInstruction(datasetId, instructionId);
-      allow create: if demoAccount()
+      allow read: if canAccessWork() && (canReadDemoInstruction(datasetId, instructionId));
+      allow create: if canAccessWork() && (demoAccount()
         && request.auth.uid == uid
         && demoDataset() == datasetId
         && allowedType()
-        && allowedSize();
+        && allowedSize());
       allow update, delete: if false;
     }
   }

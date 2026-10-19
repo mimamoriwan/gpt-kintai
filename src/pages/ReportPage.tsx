@@ -26,6 +26,7 @@ const defaultTags = [
   { id: "product_evaluation", ja: "商品評価", zh: "商品评估" },
   { id: "report_writing", ja: "報告書作成", zh: "报告制作" },
   { id: "internal_work", ja: "社内業務", zh: "公司内部工作" },
+  { id: "weekly_todo", ja: "今週のTo Do", zh: "本周待办" },
   { id: "other", ja: "その他", zh: "其他" }
 ] as const;
 
@@ -258,7 +259,7 @@ export function ReportPage({ reports, categories, attendance, editing, initialDa
           : `已根据备忘和发送给AI的${draft.aiMeta.analyzedAttachmentCount}个附件生成草稿。${linkNote}`);
       }
       document.getElementById("report-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (error) { notify("error", friendlyError(error, locale === "ja" ? "AIで下書きを作成できませんでした。手入力で提出できます。" : "AI无法生成草稿，您仍可手动填写提交。")); }
+    } catch (error) { notify("error", reportDraftError(error, locale)); }
     finally { setAiBusy(false); }
   }
 
@@ -367,6 +368,29 @@ function pickFields(report: DailyReport): ReportFields {
 function friendlyError(error: unknown, fallback: string) {
   if (error instanceof Error) return error.message.replace(/^FirebaseError:\s*/, "");
   return fallback;
+}
+
+function reportDraftError(error: unknown, locale: "ja" | "zh-CN"): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code || "").replace(/^appCheck\//, "app-check/")
+    : "";
+  if (code === "app-check/initial-throttle" || code === "app-check/throttled") {
+    return locale === "ja"
+      ? "アプリ認証の再試行が一時的に制限されています。ログインを繰り返すだけでは、この接続制限は解除されません。入力内容はこの画面に保持しています。未保存の内容を控えてからページを再読み込みし、改善しない場合は管理担当者へ連絡してください。"
+      : "应用验证暂时限制重试。仅反复登录无法解除此连接验证限制。输入内容仍保留在此页面。请先备份未保存的内容，再刷新页面；如仍未恢复，请联系管理员。";
+  }
+  const retryMessage = locale === "ja"
+    ? "通信状態を確認し、もう一度日報を作成してください。入力内容は保持しています。"
+    : "请检查网络后再次生成日报。输入内容已保留。";
+  if (code === "unauthenticated" || code === "functions/unauthenticated") {
+    return (locale === "ja" ? "ログイン状態またはアプリ認証を更新できませんでした。" : "无法更新登录状态或应用验证。") + retryMessage;
+  }
+  if (code.startsWith("app-check/")) {
+    return (locale === "ja" ? "アプリ認証を確認できませんでした。" : "无法验证应用。") + retryMessage;
+  }
+  return friendlyError(error, locale === "ja"
+    ? "AIで下書きを作成できませんでした。手入力で提出できます。"
+    : "AI无法生成草稿，您仍可手动填写提交。");
 }
 
 function reportSubmitError(error: unknown, locale: "ja" | "zh-CN", fallback: string): string {

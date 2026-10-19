@@ -123,6 +123,9 @@ describe("SharedCalendar", () => {
   });
 
   it("shows submitted and missing daily-report days while excluding a company holiday without attendance", async () => {
+    // Keep all three dates in one month, with today on a regular workday.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-09T03:00:00Z"));
     const today = todayJst();
     const holiday = previousDate(today, 1);
     const submittedDate = previousDate(today, 2);
@@ -137,9 +140,8 @@ describe("SharedCalendar", () => {
     />);
 
     expect(await screen.findByLabelText(/日報の提出状況/)).toBeInTheDocument();
-    if (submittedDate.slice(0, 7) !== today.slice(0, 7)) fireEvent.click(screen.getByRole("button", { name: "前の月" }));
     expect(screen.getByRole("button", { name: `${formatDate(submittedDate)}、日報提出済み` })).toBeInTheDocument();
-    if (submittedDate.slice(0, 7) === today.slice(0, 7)) expect(screen.getByRole("button", { name: `${formatDate(today)}、日報未提出` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `${formatDate(today)}、日報未提出` })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `${formatDate(holiday)}、臨時休業` })).not.toHaveAccessibleName(/日報未提出/);
   });
 
@@ -151,7 +153,7 @@ describe("SharedCalendar", () => {
     render(<SharedCalendar
       attendance={[{ userId: "manager", workDate: today }] as AttendanceRecord[]}
       reports={[{ userId: "manager", reportDate: today, status: "provisional" }] as DailyReport[]}
-      holidayOverrides={[]}
+      holidayOverrides={[{ id: "provisional-workday", date: today, dayType: "workday" }]}
       notify={vi.fn()}
     />);
 

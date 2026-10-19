@@ -1,0 +1,49 @@
+.account-management-page { max-width: 1440px; }
+.account-management-page .page-heading.split { align-items: center; }
+.account-management-page .page-heading p { line-height: 1.7; }
+.account-management-page .page-heading > button { flex-shrink: 0; }
+.account-management-notice { display: flex; gap: 14px; padding: 22px; margin-bottom: 24px; }
+.account-management-notice > svg { flex-shrink: 0; color: var(--blue); }
+.account-management-notice p { margin: 5px 0 0; color: var(--muted); font-size: calc(13px * var(--app-font-scale)); line-height: 1.85; }
+.account-management-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 20px; align-items: start; }
+.managed-account { padding: 24px; min-width: 0; }
+.managed-account > header { display: flex; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.managed-account h2 { margin: 0 0 4px; font-size: calc(19px * var(--app-font-scale)); overflow-wrap: anywhere; }
+.managed-account > header > div > span { color: var(--muted); font-size: calc(12px * var(--app-font-scale)); }
+.account-email { display: grid; gap: 10px; padding: 21px 0; }
+.account-email > span { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: calc(12px * var(--app-font-scale)); }
+.account-email strong { overflow-wrap: anywhere; font-size: calc(14px * var(--app-font-scale)); }
+.account-email > button { justify-self: start; }
+.account-email-form { display: grid; gap: 14px; margin-bottom: 20px; }
+.account-button-row { display: flex; flex-wrap: wrap; gap: 9px; }
+.account-button-row .button { min-height: 42px; white-space: normal; text-align: center; }
+.account-recovery-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--line); padding-top: 20px; }
+.account-recovery-heading h3 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: calc(14px * var(--app-font-scale)); }
+.account-recovery-status { padding: 5px 10px; border-radius: 30px; background: #edf0f5; color: #607088; font-size: calc(11px * var(--app-font-scale)); font-weight: 800; }
+.account-recovery-status.enabled { background: var(--green-soft); color: #137c52; }
+.account-recovery-description, .account-inline-note { font-size: calc(12px * var(--app-font-scale)); color: var(--muted); line-height: 1.8; margin: 12px 0 16px; }
+.account-link-box { display: grid; gap: 12px; padding: 15px; margin: 16px 0; border: 1px solid #c6d8fa; border-radius: 12px; background: #f5f8ff; }
+.account-link-box input { font-size: calc(12px * var(--app-font-scale)); }
+.account-link-box p { margin: 0; color: #58708e; font-size: calc(11px * var(--app-font-scale)); line-height: 1.8; }
+.account-confirmation { padding: 16px; margin-bottom: 18px; background: #f5f7fb; border: 1px solid var(--line); border-radius: 12px; font-size: calc(13px * var(--app-font-scale)); overflow-wrap: anywhere; }
+.account-confirmation p { line-height: 1.8; }
+.account-confirmation p:last-of-type { color: var(--muted); font-size: calc(12px * var(--app-font-scale)); }
+.managed-account > .form-error { margin: 18px 0 0; }
+.account-success-message { color: #167b56; font-size: calc(12px * var(--app-font-scale)); line-height: 1.8; margin: 15px 0 0; }
+.account-management-page > .account-success-message { margin: 0 0 20px; }
+.account-reauth { padding: 24px; margin-bottom: 24px; border-color: #c6d8fa; }
+.account-reauth h2 { margin: 0; font-size: calc(18px * var(--app-font-scale)); }
+.account-reauth p { font-size: calc(13px * var(--app-font-scale)); color: var(--muted); line-height: 1.8; }
+.account-reauth form { display: grid; gap: 15px; max-width: 400px; }
+.account-reauth .form-error { margin: 0; }
+.account-recovery-success { margin: 24px 0; padding: 20px; border-radius: 12px; background: var(--green-soft); color: #187a55; line-height: 1.8; }
+.account-recovery-success p { font-size: calc(13px * var(--app-font-scale)); }
+.account-recovery-success p:last-child { margin-bottom: 0; }
+.account-recovery-success strong { display: block; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .account-management-page .page-heading.split { display: grid; gap: 17px; }
+  .account-management-page .page-heading > button { justify-self: start; }
+  .managed-account { padding: 20px; }
+  .account-management-notice { padding: 18px; }
+  .account-button-row > .button { flex-grow: 1; }
+}

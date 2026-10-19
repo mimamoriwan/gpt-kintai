@@ -1,0 +1,1 @@
+export const useAuth = () => ({ user: { uid: "preview-owner", email: "manager@example.test" }, profile: { uid: "preview-owner", email: "manager@example.test", role: "employee_manager", active: true }, logout: async () => undefined });

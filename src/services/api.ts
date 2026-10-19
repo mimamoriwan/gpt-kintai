@@ -3,6 +3,8 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
+  limitToLast,
   onSnapshot,
   orderBy,
   query,
@@ -44,6 +46,7 @@ import type {
   NonWorkingReason,
   PresidentInstruction,
   InstructionPriority,
+  InstructionMessage,
   Product,
   ProductFacts,
   ProductImageAnalysis,
@@ -142,9 +145,19 @@ export function watchPresidentInstructions(
   };
 }
 
+export async function getAnnouncementForNotification(id: string): Promise<PresidentInstruction> {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error("invalid-announcement-id");
+  const snapshot = await getDoc(doc(db, "presidentInstructions", id));
+  if (!snapshot.exists()) throw new Error("announcement-not-found");
+  return { id: snapshot.id, ...snapshot.data() } as PresidentInstruction;
+}
+
 export async function getAnnouncementRecipients(): Promise<AnnouncementRecipient[]> {
   const call = httpsCallable<Record<string, never>, { recipients: AnnouncementRecipient[] }>(functions, "listAnnouncementRecipients");
-  return (await call({})).data.recipients;
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({})
+  )).data.recipients;
 }
 
 export interface PresidentInstructionInput {
@@ -159,41 +172,87 @@ export interface PresidentInstructionInput {
 
 export async function createPresidentInstruction(input: PresidentInstructionInput): Promise<{ id: string; translationStatus: "completed" | "failed" }> {
   const call = httpsCallable<PresidentInstructionInput, { id: string; translationStatus: "completed" | "failed" }>(functions, "createPresidentInstruction", { timeout: 120_000 });
-  return (await call(input)).data;
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call(input)
+  )).data;
 }
 
 export async function acknowledgePresidentInstruction(instructionId: string): Promise<void> {
   const call = httpsCallable<{ instructionId: string }, { ok: true }>(functions, "acknowledgePresidentInstruction");
-  await call({ instructionId });
+  await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ instructionId })
+  );
+}
+
+export async function remindPresidentInstruction(instructionId: string): Promise<{ ok: true; recipientCount: number }> {
+  const call = httpsCallable<{ instructionId: string }, { ok: true; recipientCount: number }>(functions, "remindPresidentInstruction");
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ instructionId })
+  )).data;
 }
 
 export async function completePresidentInstruction(instructionId: string, completionNote: string): Promise<void> {
   const call = httpsCallable<{ instructionId: string; completionNote: string }, { ok: true }>(functions, "completePresidentInstruction");
-  await call({ instructionId, completionNote });
+  await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ instructionId, completionNote })
+  );
+}
+
+export function watchInstructionMessages(instructionId: string, recipientId: string, count: number, callback: (rows: InstructionMessage[]) => void, onError: (error: Error) => void): Unsubscribe {
+  return onSnapshot(query(
+    collection(db, "presidentInstructions", instructionId, "conversations", recipientId, "messages"),
+    orderBy("createdAt", "asc"), limitToLast(count)
+  ), (snapshot) => callback(snapshot.docs.map((item) => ({ ...item.data(), id: item.id }) as InstructionMessage)), onError);
+}
+
+export async function sendInstructionMessage(input: { instructionId: string; recipientId: string; messageId: string; body: string }): Promise<void> {
+  const call = httpsCallable<typeof input, { ok: true; id: string }>(functions, "replyToPresidentInstruction");
+  await invokeWithVerifiedSecurityContext(prepareCallableSecurityContext, () => call(input));
 }
 
 export async function cancelPresidentInstruction(instructionId: string, reason: string): Promise<void> {
   const call = httpsCallable<{ instructionId: string; reason: string }, { ok: true }>(functions, "cancelPresidentInstruction");
-  await call({ instructionId, reason });
+  await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ instructionId, reason })
+  );
 }
 
 export async function replacePresidentInstruction(instructionId: string, reason: string, replacement: PresidentInstructionInput): Promise<{ id: string; translationStatus: "completed" | "failed" }> {
   const call = httpsCallable<{ instructionId: string; reason: string; replacement: PresidentInstructionInput }, { id: string; translationStatus: "completed" | "failed" }>(functions, "replacePresidentInstruction", { timeout: 120_000 });
-  return (await call({ instructionId, reason, replacement })).data;
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ instructionId, reason, replacement })
+  )).data;
 }
 
 export async function retryPresidentInstructionTranslation(instructionId: string): Promise<void> {
   const call = httpsCallable<{ instructionId: string }, { ok: true }>(functions, "retryPresidentInstructionTranslation", { timeout: 120_000 });
-  await call({ instructionId });
+  await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ instructionId })
+  );
 }
 
-export async function uploadPresidentInstructionFiles(profile: UserProfile, instructionId: string, files: File[], existing: Attachment[]): Promise<Attachment[]> {
+export interface InstructionFileUploadOptions {
+  onUploaded?: (attachment: Attachment) => void;
+  onProgress?: (current: number, total: number) => void;
+}
+
+export async function uploadPresidentInstructionFiles(profile: UserProfile, instructionId: string, files: File[], existing: Attachment[], options: InstructionFileUploadOptions = {}): Promise<Attachment[]> {
   const preparedFiles: File[] = [];
   for (const file of files) preparedFiles.push(file.type.startsWith("image/") || /\.hei[cf]$/i.test(file.name) ? await compressProductImage(file) : file);
   const validation = validateFiles(preparedFiles, existing);
   if (validation) throw new Error(validation);
+  if (!preparedFiles.length) return [];
+  await prepareCallableSecurityContext(false);
   const output: Attachment[] = [];
   for (const file of preparedFiles) {
+    options.onProgress?.(output.length + 1, preparedFiles.length);
     const id = crypto.randomUUID();
     const prefix = profile.isDemo
       ? `demo/${profile.demoDatasetId}/president-instructions/${instructionId}/${profile.uid}`
@@ -208,7 +267,9 @@ export async function uploadPresidentInstructionFiles(profile: UserProfile, inst
         ...(profile.isDemo ? { isDemo: "true", demoDatasetId: profile.demoDatasetId || "" } : {})
       }
     });
-    output.push({ id, name: file.name, contentType: file.type, size: file.size, storagePath: path });
+    const attachment = { id, name: file.name, contentType: file.type, size: file.size, storagePath: path };
+    output.push(attachment);
+    options.onUploaded?.(attachment);
   }
   return output;
 }
@@ -438,7 +499,10 @@ export async function updateWorkLog(
 
 export async function generateReportDraft(reportDate: string, sourceLanguage: ReportLanguage, hasTravel: boolean): Promise<GeneratedReportDraft> {
   const call = httpsCallable<{ reportDate: string; sourceLanguage: ReportLanguage; hasTravel: boolean }, GeneratedReportDraft>(functions, "generateDailyReportDraft", { timeout: 180_000 });
-  return (await call({ reportDate, sourceLanguage, hasTravel })).data;
+  return (await invokeWithVerifiedSecurityContext(
+    prepareCallableSecurityContext,
+    () => call({ reportDate, sourceLanguage, hasTravel })
+  )).data;
 }
 
 export type ManualClockInDetails = {
@@ -502,6 +566,11 @@ export async function retryTranslation(reportId: string): Promise<void> {
 export async function markReviewed(entityType: "attendance" | "daily_report", entityId: string): Promise<void> {
   const call = httpsCallable<{ entityType: string; entityId: string }, { ok: true }>(functions, "markReviewed");
   await call({ entityType, entityId });
+}
+
+export async function markDailyReportCommentsRead(reportId: string, commentIds: string[]): Promise<void> {
+  const call = httpsCallable<{ reportId: string; commentIds: string[] }, { ok: boolean }>(functions, "markDailyReportCommentsRead");
+  await invokeWithVerifiedSecurityContext(prepareCallableSecurityContext, () => call({ reportId, commentIds }));
 }
 
 export async function addDailyReportComment(reportId: string, body: string): Promise<void> {
@@ -688,6 +757,11 @@ export async function inviteUser(input: { email: string; displayName: string; ro
   return (await call(input)).data;
 }
 
+export async function completeInitialPasswordChange(input: { newPassword: string }): Promise<{ success: true }> {
+  const call = httpsCallable<typeof input, { success: true }>(functions, "completeInitialPasswordChange");
+  return (await invokeWithVerifiedSecurityContext(prepareCallableSecurityContext, () => call(input))).data;
+}
+
 export async function deactivateUser(uid: string, disabled: boolean): Promise<void> {
   const call = httpsCallable<{ uid: string; disabled: boolean }, { ok: true }>(functions, "setUserDisabled");
   await call({ uid, disabled });
@@ -724,7 +798,8 @@ export const watchWeeklyPlans = (userId: string, canViewAll: boolean, callback: 
 export const watchWeeklyReports = (userId: string, canViewAll: boolean, callback: (rows: WeeklyReport[]) => void, onError?: (error: Error) => void) => watchRows<WeeklyReport>("weeklyReports", callback, onError, canViewAll ? [] : [where("userId", "==", userId)]);
 export const watchWeeklyMeetings = (userId: string, canViewAll: boolean, callback: (rows: WeeklyMeetingRecord[]) => void, onError?: (error: Error) => void) => watchRows<WeeklyMeetingRecord>("weeklyMeetings", callback, onError, canViewAll ? [] : [where("userId", "==", userId)]);
 export const watchNonWorkingReasons = (userId: string, canViewAll: boolean, callback: (rows: NonWorkingReason[]) => void, onError?: (error: Error) => void) => watchRows<NonWorkingReason>("nonWorkingReasons", callback, onError, canViewAll ? [] : [where("userId", "==", userId)]);
-export const watchEvidenceReferences = (userId: string, canViewAll: boolean, callback: (rows: EvidenceReference[]) => void, onError?: (error: Error) => void) => watchRows<EvidenceReference>("evidenceReferences", callback, onError, canViewAll ? [] : [where("subjectUserId", "==", userId)]);
+// Employee queries must satisfy both conditions in the evidenceReferences list rule.
+export const watchEvidenceReferences = (userId: string, canViewAll: boolean, callback: (rows: EvidenceReference[]) => void, onError?: (error: Error) => void) => watchRows<EvidenceReference>("evidenceReferences", callback, onError, canViewAll ? [] : [where("subjectUserId", "==", userId), where("visibility", "==", "work")]);
 export const watchMonthlyPackages = (userId: string, canViewAll: boolean, callback: (rows: MonthlyEvidencePackage[]) => void, onError?: (error: Error) => void) => watchRows<MonthlyEvidencePackage>("monthlyEvidencePackages", callback, onError, canViewAll ? [] : [where("userId", "==", userId)]);
 export const watchRenewalChecklists = (callback: (rows: RenewalChecklist[]) => void, onError?: (error: Error) => void) => watchRows<RenewalChecklist>("renewalChecklists", callback, onError);
 
@@ -738,6 +813,7 @@ export const saveEmploymentBasis = (input: Omit<EmploymentBasis, "id" | "userNam
 export const saveSourceDocumentReference = (input: Omit<SourceDocumentReference, "id" | "createdBy" | "createdAt" | "updatedAt"> & { id?: string }) => callSave("saveSourceDocumentReference", input);
 export const saveWeeklyPlan = (input: Omit<WeeklyPlan, "id" | "userName" | "weekEnd" | "confirmedAt" | "confirmedBy" | "createdAt" | "updatedAt">) => callSave("saveWeeklyPlan", input);
 export const generateWeeklyReport = (userId: string, weekStart: string) => callSave<{ userId: string; weekStart: string }, { id: string }>("generateWeeklyReport", { userId, weekStart }, 120_000);
+export const generateMonthlyReport = (userId: string, periodStart: string, periodEnd: string) => callSave("generateWeeklyReport", { userId, periodStart, periodEnd }, 120_000);
 export const saveWeeklyReport = (input: { reportId: string; sections: WeeklyReportSections; status: WeeklyReport["status"]; reason?: string }) => callSave("saveWeeklyReport", input);
 export const saveWeeklyMeeting = (input: Omit<WeeklyMeetingRecord, "id" | "finalizedAt" | "finalizedBy" | "createdAt" | "updatedAt">) => callSave("saveWeeklyMeeting", input);
 export const saveNonWorkingReason = (input: Omit<NonWorkingReason, "id" | "userName" | "createdBy" | "createdAt" | "updatedAt">) => callSave("saveNonWorkingReason", input);

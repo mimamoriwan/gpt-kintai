@@ -9,6 +9,8 @@ import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
 import { connectStorageEmulator, getStorage } from "firebase/storage";
 import { getToken as getAppCheckToken, initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
+import { startAppCheckLifecycle } from "./lib/appCheckLifecycle";
+import { recordAppCheckError, recordAppCheckSuccess } from "./lib/appCheckRecovery";
 
 const useEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true" ||
   (!import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.DEV);
@@ -27,13 +29,16 @@ const recaptchaEnterpriseSiteKey = import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SIT
 export const appCheck = !useEmulators && recaptchaEnterpriseSiteKey && typeof window !== "undefined"
   ? initializeAppCheck(app, {
     provider: new ReCaptchaEnterpriseProvider(recaptchaEnterpriseSiteKey),
-    isTokenAutoRefreshEnabled: true
+    isTokenAutoRefreshEnabled: false
   })
   : null;
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const functions = getFunctions(app, "asia-northeast1");
 export const storage = getStorage(app);
+
+const stopAppCheckLifecycle = appCheck ? startAppCheckLifecycle(appCheck) : undefined;
+import.meta.hot?.dispose(() => stopAppCheckLifecycle?.());
 
 void setPersistence(auth, browserLocalPersistence);
 
@@ -47,6 +52,22 @@ if (useEmulators && typeof window !== "undefined" && !window.__firebaseEmulators
 
 export const usingEmulators = useEmulators;
 
+// Recovery is authorized by its one-use secret, but still requires App Check.
+export async function preparePublicCallableSecurityContext(forceRefresh = false): Promise<void> {
+  if (!appCheck && !useEmulators) {
+    throw new Error("アプリ認証の設定を確認できません。管理担当者へ連絡してください。");
+  }
+  if (appCheck) {
+    try {
+      await getAppCheckToken(appCheck, forceRefresh);
+      recordAppCheckSuccess(forceRefresh);
+    } catch (error) {
+      recordAppCheckError(error);
+      throw error;
+    }
+  }
+}
+
 export async function prepareCallableSecurityContext(forceRefresh = false): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) {
@@ -54,12 +75,17 @@ export async function prepareCallableSecurityContext(forceRefresh = false): Prom
     error.code = "functions/unauthenticated";
     throw error;
   }
-  await currentUser.getIdToken(forceRefresh);
-  if (appCheck) {
-    await getAppCheckToken(appCheck, forceRefresh);
-  } else if (!useEmulators) {
+  if (!appCheck && !useEmulators) {
     throw new Error("アプリ認証の設定を確認できません。管理担当者へ連絡してください。");
   }
+  // Both checks must pass, but neither needs to wait for the other to start.
+  await Promise.all([
+    currentUser.getIdToken(forceRefresh),
+    appCheck ? getAppCheckToken(appCheck, forceRefresh).then(
+      () => { recordAppCheckSuccess(forceRefresh); },
+      (error: unknown) => { recordAppCheckError(error); throw error; }
+    ) : Promise.resolve()
+  ]);
 }
 
 declare global {

@@ -116,6 +116,7 @@ export const weeklyPlanInputSchema = z.object({
 const weeklyText = (maximum: number) => z.string().trim().max(maximum).optional().default("");
 
 export const weeklyReportThemeSchema = z.object({
+  includeInReport: z.boolean().optional(),
   title: weeklyText(500),
   objective: weeklyText(4000),
   activities: weeklyText(12000),

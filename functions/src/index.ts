@@ -11,9 +11,18 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import OpenAI from "openai";
 import { z } from "zod";
 import { assertManualClockInTime, assertTimeRange, calendarDateRange, calendarEventInputSchema, clockInInputSchema, csvEscape, evidenceCategories, evidenceVisibilities, formatTaggedActivities, generatedReportDraftSchema, groupWorkLogEntries, isValidJan, jstDate, nonWorkingReasonTypes, normalizeJan, parseIsoDateTime, productFactsSchema, productImageInputSchema, productObservationInputSchema, productStatuses, reportCommentInputSchema, reportDraftInputSchema, reportFieldsSchema, reportInputSchema, roles, weeklyPlanInputSchema, weeklyReportSectionsSchema, weeklyReportStatuses, weekRange } from "./domain.js";
+import { generateReportInputSchema, reportRange, reportDocumentId, monthsInReportRange } from "./reportPeriod.js";
 import { resolveCompanyDay } from "./companyCalendar.js";
 import { MAX_DAILY_DRAFT_BYTES, MAX_DAILY_DRAFT_FILES, appendDailyDraftCache, assertDailyDraftAttachmentLimits, findDailyDraftCache, prepareDailyDraftSource, type DailyDraftCacheEntry, type DailyDraftFileSource } from "./dailyDraft.js";
 import { AUTOMATIC_REPORT_MAX_ATTEMPTS, automaticCreationMethod, dailyReportAutomationId, dailyReportDocumentId, eligibleForAutomaticReport, previousJstDate, reportIsSubmitted, type AutomaticReportTrigger } from "./dailyAutomation.js";
+import { completePasswordSetup, requireWorkAuth } from "./passwordChange.js";
+export { getWeeklyTodoWorkspace, getWeeklyTodoHistory, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, translateWeeklyTodoContent, addWeeklyTodoToDailyReport } from "./weeklyTodo/index.js";
+import { acknowledgeDailyReportReplies } from "./reportReplies.js";
+import { sendInstructionReminder } from "./instructionReminders.js";
+import { sendInstructionMessage } from "./instructionMessages.js";
+export { registerAnnouncementPushDevice, unregisterAnnouncementPushDevice, testAnnouncementPushDevice, notifyNewAnnouncement } from "./announcementPushEndpoints.js";
+export { getBusinessWorkspace, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent } from "./business/index.js";
+export { getAccountManagement, setAccountRecovery, completeAccountRecovery, changeAccountEmail } from "./accountRecoveryEndpoints.js";
 
 initializeApp();
 setGlobalOptions({ region: "asia-northeast1", maxInstances: 5, memory: "256MiB" });
@@ -31,9 +40,8 @@ const callableOptions = {
 
 type AuthContext = { uid: string; token: Record<string, unknown> };
 
-function requireAuth(auth: AuthContext | undefined): AuthContext {
-  if (!auth) throw new HttpsError("unauthenticated", "ログインが必要です。");
-  return auth;
+async function requireAuth(auth: AuthContext | undefined): Promise<AuthContext> {
+  return requireWorkAuth(auth, async (uid) => (await firestore.doc(`users/${uid}`).get()).data());
 }
 
 function roleOf(auth: AuthContext): string { return typeof auth.token.role === "string" ? auth.token.role : "employee"; }
@@ -44,6 +52,17 @@ async function userProfile(uid: string) {
   const snapshot = await firestore.doc(`users/${uid}`).get();
   if (!snapshot.exists || snapshot.data()?.active === false) throw new HttpsError("permission-denied", "利用できないアカウントです。");
   return snapshot.data()!;
+}
+
+async function activeAttendanceContext(uid: string, limit: 1 | 2) {
+  const [profile, active] = await Promise.allSettled([
+    userProfile(uid),
+    firestore.collection("attendance").where("userId", "==", uid).where("status", "==", "active").limit(limit).get()
+  ]);
+  // Keep account validation ahead of attendance errors even when reads finish out of order.
+  if (profile.status === "rejected") throw profile.reason;
+  if (active.status === "rejected") throw active.reason;
+  return { profile: profile.value, active: active.value };
 }
 
 type DemoFields = { isDemo: true; demoDatasetId: string; seedVersion: string } | Record<string, never>;
@@ -424,11 +443,10 @@ function toHttpsError(error: unknown): never {
 
 export const clockIn = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const input = clockInInputSchema.parse(request.data);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
-    const profile = await userProfile(auth.uid);
-    const active = await firestore.collection("attendance").where("userId", "==", auth.uid).where("status", "==", "active").limit(1).get();
+    const { profile, active } = await activeAttendanceContext(auth.uid, 1);
     if (!active.empty) {
       const openRecord = active.docs[0].data();
       if (String(openRecord.workDate || "") < jstDate()) {
@@ -494,9 +512,8 @@ export const clockIn = onCall(callableOptions, async (request) => {
 
 export const clockOut = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
-    const profile = await userProfile(auth.uid);
-    const active = await firestore.collection("attendance").where("userId", "==", auth.uid).where("status", "==", "active").limit(2).get();
+    const auth = await requireAuth(request.auth);
+    const { profile, active } = await activeAttendanceContext(auth.uid, 2);
     if (active.empty) throw new HttpsError("not-found", "始業中の記録がありません。");
     if (active.size > 1) throw new HttpsError("failed-precondition", "複数の始業中記録があります。管理者へ連絡してください。");
     const activeRow = active.docs[0].data();
@@ -512,7 +529,7 @@ export const clockOut = onCall(callableOptions, async (request) => {
 
 export const correctAttendance = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const input = z.object({
       id: z.string().min(1),
       startedAt: z.string().min(1),
@@ -809,7 +826,7 @@ async function buildDailyReportDraft(uid: string, profile: Record<string, any>, 
 
 export const generateDailyReportDraft = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 180, memory: "512MiB" }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const input = reportDraftInputSchema.parse(request.data);
     const profile = await userProfile(auth.uid);
@@ -1202,7 +1219,7 @@ export const automaticDailyReportDayRollover = onSchedule({
 
 export const submitDailyReport = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const input = reportInputSchema.parse(request.data);
     const profile = await userProfile(auth.uid);
@@ -1285,7 +1302,7 @@ export const submitDailyReport = onCall({ ...callableOptions, secrets: [openAIKe
 
 export const retryReportTranslation = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const { reportId } = z.object({ reportId: z.string().min(1) }).parse(request.data);
     const ref = firestore.doc(`dailyReports/${reportId}`);
     const snapshot = await ref.get();
@@ -1322,7 +1339,7 @@ async function translateAndUpdate(reportId: string, uid: string, fields: z.infer
 
 export const markReviewed = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ entityType: z.enum(["attendance", "daily_report"]), entityId: z.string().min(1) }).parse(request.data);
     const collectionName = input.entityType === "attendance" ? "attendance" : "dailyReports";
     const ref = firestore.doc(`${collectionName}/${input.entityId}`);
@@ -1341,9 +1358,17 @@ export const markReviewed = onCall(callableOptions, async (request) => {
   } catch (error) { return toHttpsError(error); }
 });
 
+export const markDailyReportCommentsRead = onCall(callableOptions, async (request) => {
+  try {
+    const auth = await requireAuth(request.auth);
+    return await acknowledgeDailyReportReplies(auth, request.data, firestore);
+  }
+  catch (error) { return toHttpsError(error); }
+});
+
 export const addDailyReportComment = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     requireViewer(auth);
     const input = reportCommentInputSchema.parse(request.data);
     const profile = await userProfile(auth.uid);
@@ -1383,7 +1408,7 @@ export const addDailyReportComment = onCall(callableOptions, async (request) => 
 
 export const createPresidentInstruction = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const input = instructionInputSchema.parse(request.data);
     const id = await createInstruction(auth, input);
     try {
@@ -1396,9 +1421,23 @@ export const createPresidentInstruction = onCall({ ...callableOptions, secrets: 
   } catch (error) { return toHttpsError(error); }
 });
 
+export const remindPresidentInstruction = onCall(callableOptions, async (request) => {
+  try {
+    const auth = await requireAuth(request.auth);
+    return await sendInstructionReminder(firestore, auth.uid, request.data);
+  } catch (error) { return toHttpsError(error); }
+});
+
+export const replyToPresidentInstruction = onCall(callableOptions, async (request) => {
+  try {
+    const auth = await requireAuth(request.auth);
+    return await sendInstructionMessage(firestore, auth.uid, request.data);
+  } catch (error) { return toHttpsError(error); }
+});
+
 export const acknowledgePresidentInstruction = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const { instructionId } = z.object({ instructionId: z.string().min(1).max(128) }).parse(request.data);
     const profile = await userProfile(auth.uid);
     const ref = firestore.doc(`presidentInstructions/${instructionId}`);
@@ -1424,7 +1463,7 @@ export const acknowledgePresidentInstruction = onCall(callableOptions, async (re
 
 export const completePresidentInstruction = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const input = z.object({ instructionId: z.string().min(1).max(128), completionNote: z.string().trim().max(2000).optional().default("") }).parse(request.data);
     const profile = await userProfile(auth.uid);
     const ref = firestore.doc(`presidentInstructions/${input.instructionId}`);
@@ -1455,7 +1494,7 @@ export const completePresidentInstruction = onCall(callableOptions, async (reque
 
 export const cancelPresidentInstruction = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const input = z.object({ instructionId: z.string().min(1).max(128), reason: z.string().trim().min(3).max(500) }).parse(request.data);
     const profile = await userProfile(auth.uid);
     const ref = firestore.doc(`presidentInstructions/${input.instructionId}`);
@@ -1477,7 +1516,7 @@ export const cancelPresidentInstruction = onCall(callableOptions, async (request
 
 export const replacePresidentInstruction = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const parsed = z.object({ instructionId: z.string().min(1).max(128), reason: z.string().trim().min(3).max(500), replacement: instructionInputSchema }).parse(request.data);
     const id = await createInstruction(auth, parsed.replacement, parsed.instructionId, parsed.reason);
     try {
@@ -1492,7 +1531,7 @@ export const replacePresidentInstruction = onCall({ ...callableOptions, secrets:
 
 export const retryPresidentInstructionTranslation = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const { instructionId } = z.object({ instructionId: z.string().min(1).max(128) }).parse(request.data);
     const profile = await userProfile(auth.uid);
     const snapshot = await firestore.doc(`presidentInstructions/${instructionId}`).get();
@@ -1508,7 +1547,7 @@ export const retryPresidentInstructionTranslation = onCall({ ...callableOptions,
 
 export const inviteUser = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ email: z.string().email(), displayName: z.string().min(1).max(100), role: z.enum(roles), locale: z.enum(["ja", "zh-CN"]) }).parse(request.data);
     const temporaryPassword = `${randomBytes(18).toString("base64url")}A1!`;
     const user = await getAuth().createUser({ email: input.email, displayName: input.displayName, password: temporaryPassword, emailVerified: false });
@@ -1521,7 +1560,7 @@ export const inviteUser = onCall(callableOptions, async (request) => {
 
 export const setUserDisabled = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ uid: z.string().min(1), disabled: z.boolean() }).parse(request.data);
     if (input.uid === auth.uid) throw new HttpsError("failed-precondition", "自分自身は無効化できません。");
     await getAuth().updateUser(input.uid, { disabled: input.disabled });
@@ -1532,7 +1571,7 @@ export const setUserDisabled = onCall(callableOptions, async (request) => {
 
 export const listAnnouncementRecipients = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const profile = await userProfile(auth.uid);
     const snapshot = await firestore.collection("users").limit(100).get();
     const recipients = snapshot.docs
@@ -1552,7 +1591,7 @@ export const listAnnouncementRecipients = onCall(callableOptions, async (request
 
 export const listCalendarMembers = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const profile = await userProfile(auth.uid);
     const input = z.object({ includeInactive: z.boolean().optional().default(false) }).parse(request.data || {});
     if (input.includeInactive) requireManager(auth);
@@ -1575,7 +1614,7 @@ export const listCalendarMembers = onCall(callableOptions, async (request) => {
 
 export const saveCalendarMember = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const profile = await userProfile(auth.uid);
     const input = z.object({
       id: z.string().trim().regex(/^[A-Za-z0-9_-]+$/).max(180).optional(),
@@ -1615,7 +1654,7 @@ export const saveCalendarMember = onCall(callableOptions, async (request) => {
 
 export const saveCalendarEvent = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const profile = await userProfile(auth.uid);
     const input = calendarEventInputSchema.parse(request.data);
     const memberRows = await ensureCalendarMembers(profile);
@@ -1685,7 +1724,7 @@ export const saveCalendarEvent = onCall(callableOptions, async (request) => {
 
 export const deleteCalendarEvent = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const profile = await userProfile(auth.uid);
     const input = z.object({ id: z.string().trim().regex(/^[A-Za-z0-9_-]+$/).max(180), groupId: z.string().trim().regex(/^[A-Za-z0-9_-]+$/).max(180).optional() }).parse(request.data);
     const ref = firestore.doc(`calendarEvents/${input.id}`);
@@ -1711,7 +1750,7 @@ export const deleteCalendarEvent = onCall(callableOptions, async (request) => {
 
 export const saveCategory = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ id: z.string().optional(), labelJa: z.string().min(1).max(80), labelZh: z.string().min(1).max(80), active: z.boolean().default(true), order: z.number().int().min(0).max(1000).default(100), dutyDefinitionIds: z.array(z.string().max(128)).max(20).optional().default([]) }).parse(request.data);
     const ref = input.id ? firestore.doc(`categories/${input.id}`) : firestore.collection("categories").doc();
     await ref.set({ labelJa: input.labelJa, labelZh: input.labelZh, active: input.active, order: input.order, dutyDefinitionIds: input.dutyDefinitionIds, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -1721,7 +1760,7 @@ export const saveCategory = onCall(callableOptions, async (request) => {
 
 export const saveCompanyHolidayOverride = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -1772,7 +1811,7 @@ export const saveCompanyHolidayOverride = onCall(callableOptions, async (request
 
 export const removeCompanyHolidayOverride = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), holidayGroupId: z.string().trim().regex(/^[A-Za-z0-9_-]+$/).max(180).optional() }).parse(request.data);
     const ref = firestore.doc(`companyHolidayOverrides/${input.date}`);
     const before = await ref.get();
@@ -1803,7 +1842,7 @@ export const removeCompanyHolidayOverride = onCall(callableOptions, async (reque
 
 export const analyzeProductImages = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120, memory: "512MiB" }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const profile = await userProfile(auth.uid);
     const input = productImageInputSchema.parse(request.data);
@@ -1862,7 +1901,7 @@ export const analyzeProductImages = onCall({ ...callableOptions, secrets: [openA
 
 export const saveProductCandidate = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const profile = await userProfile(auth.uid);
     const input = productObservationInputSchema.parse(request.data);
@@ -1933,7 +1972,7 @@ export const saveProductCandidate = onCall({ ...callableOptions, secrets: [openA
 
 export const attachProductImages = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const profile = await userProfile(auth.uid);
     const input = z.object({ observationId: z.string().min(1), photos: z.array(z.object({ kind: z.enum(["front", "jan", "ingredients"]), name: z.string().min(1).max(180), contentType: z.literal("image/jpeg"), size: z.number().int().positive().max(1024 * 1024), storagePath: z.string().min(1).max(500), downloadUrl: z.string().url().max(2000) })).max(3) }).parse(request.data);
@@ -1970,7 +2009,7 @@ export const attachProductImages = onCall(callableOptions, async (request) => {
 
 export const updateProductObservation = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const profile = await userProfile(auth.uid);
     const input = z.object({ observationId: z.string().min(1), discoveredDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), source: z.enum(["store", "business_trip", "internet", "flyer", "other"]), sourceDetail: z.string().trim().max(2000).default(""), reasonOriginal: z.string().trim().max(5000).default(""), reasonLanguage: z.enum(["ja", "zh-CN"]), correctionReason: z.string().trim().min(3).max(500) }).parse(request.data);
     const ref = firestore.doc(`productObservations/${input.observationId}`);
@@ -1998,7 +2037,7 @@ export const updateProductObservation = onCall({ ...callableOptions, secrets: [o
 
 export const reviewProductObservation = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const { observationId } = z.object({ observationId: z.string().min(1) }).parse(request.data);
     const ref = firestore.doc(`productObservations/${observationId}`);
     if (!(await ref.get()).exists) throw new HttpsError("not-found", "発見記録がありません。");
@@ -2009,7 +2048,7 @@ export const reviewProductObservation = onCall(callableOptions, async (request) 
 
 export const setProductStatus = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ productId: z.string().min(1), status: z.enum(productStatuses) }).parse(request.data);
     const ref = firestore.doc(`products/${input.productId}`);
     if (!(await ref.get()).exists) throw new HttpsError("not-found", "商品がありません。");
@@ -2020,7 +2059,7 @@ export const setProductStatus = onCall(callableOptions, async (request) => {
 
 export const setProductEstimateRequested = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const profile = await userProfile(auth.uid);
     const input = z.object({ productId: z.string().min(1), estimateRequested: z.boolean() }).parse(request.data);
@@ -2058,7 +2097,7 @@ export const setProductEstimateRequested = onCall(callableOptions, async (reques
 
 export const updateProductFacts = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ productId: z.string().min(1), facts: productFactsSchema, reason: z.string().trim().min(3).max(500) }).parse(request.data);
     const jan = normalizeJan(input.facts.jan);
     if (jan && !isValidJan(jan)) throw new HttpsError("invalid-argument", "JANコードが正しくありません。");
@@ -2086,7 +2125,7 @@ export const updateProductFacts = onCall(callableOptions, async (request) => {
 
 export const retryProductReasonTranslation = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120 }, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     const { observationId } = z.object({ observationId: z.string().min(1) }).parse(request.data);
     const ref = firestore.doc(`productObservations/${observationId}`);
     const snapshot = await ref.get();
@@ -2263,7 +2302,7 @@ async function markMonthlyPackageForRegeneration(userId: string, date: string): 
 }
 
 async function markMonthlyPackagesForRange(userId: string, startDate: string, endDate: string): Promise<void> {
-  const months = new Set([startDate.slice(0, 7), endDate.slice(0, 7)]);
+  const months = monthsInReportRange(startDate, endDate);
   await Promise.all([...months].map((month) => markMonthlyPackageForRegeneration(userId, `${month}-01`)));
 }
 
@@ -2291,7 +2330,7 @@ export const markMonthlyPackageAfterWorkLogWrite = onDocumentWritten({
 
 export const saveDutyDefinition = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ id: z.string().optional(), code: z.string().trim().min(1).max(40), labelJa: z.string().trim().min(1).max(120), labelZh: z.string().trim().max(120).optional().default(""), descriptionJa: z.string().trim().max(4000).optional().default(""), descriptionZh: z.string().trim().max(4000).optional().default(""), active: z.boolean().optional().default(true), order: z.number().int().min(0).max(10000).optional().default(100) }).parse(request.data);
     const { id, ...values } = input;
     const ref = id ? firestore.doc(`dutyDefinitions/${id}`) : firestore.collection("dutyDefinitions").doc();
@@ -2303,7 +2342,7 @@ export const saveDutyDefinition = onCall(callableOptions, async (request) => {
 
 export const saveEmploymentBasis = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ userId: z.string().min(1).max(128), employmentStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), assignedDutyIds: z.array(z.string().max(128)).max(30), descriptionJa: z.string().trim().max(8000).optional().default(""), descriptionZh: z.string().trim().max(8000).optional().default(""), active: z.boolean().optional().default(true) }).parse(request.data);
     const profile = await userProfile(input.userId);
     if (profile.isDemo === true) throw new HttpsError("failed-precondition", "デモ利用者は正式な雇用・職務基準へ登録できません。");
@@ -2316,7 +2355,7 @@ export const saveEmploymentBasis = onCall(callableOptions, async (request) => {
 
 export const saveSourceDocumentReference = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ id: z.string().optional(), title: z.string().trim().min(1).max(240), driveUrl: z.string().url().max(2000).refine((value) => /^https:\/\//.test(value)), documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), confirmedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), purpose: z.string().trim().max(2000).optional().default(""), confidential: z.boolean().optional().default(true) }).parse(request.data);
     const { id, ...values } = input;
     const ref = id ? firestore.doc(`sourceDocumentReferences/${id}`) : firestore.collection("sourceDocumentReferences").doc();
@@ -2328,7 +2367,7 @@ export const saveSourceDocumentReference = onCall(callableOptions, async (reques
 
 export const saveWeeklyPlan = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const input = weeklyPlanInputSchema.parse(request.data);
     requireSubjectAccess(auth, input.userId);
@@ -2346,11 +2385,11 @@ export const saveWeeklyPlan = onCall(callableOptions, async (request) => {
   } catch (error) { return toHttpsError(error); }
 });
 
-async function weeklySourceData(userId: string, weekStart: string) {
-  const range = weekRange(weekStart);
+async function weeklySourceData(userId: string, weekStart: string, periodEnd?: string) {
+  const range = reportRange(weekStart, periodEnd);
   const profile = await userProfile(userId);
-  const [plan, reports, logs, attendance, observations, products] = await Promise.all([
-    firestore.doc(`weeklyPlans/${weekDocumentId(userId, range.weekStart)}`).get(),
+  const [plans, reports, logs, attendance, observations, products] = await Promise.all([
+    firestore.collection("weeklyPlans").where("userId", "==", userId).get(),
     firestore.collection("dailyReports").where("userId", "==", userId).get(),
     firestore.collection("workLogs").where("userId", "==", userId).get(),
     firestore.collection("attendance").where("userId", "==", userId).get(),
@@ -2364,7 +2403,16 @@ async function weeklySourceData(userId: string, weekStart: string) {
   const observationRows = observations.docs.filter((item) => sameDemoScope(profile, item.data()) && within(item.data().discoveredDate)).map((item) => ({ id: item.id, ...serializable(item.data()) }));
   const productById = new Map(products.docs.filter((item) => sameDemoScope(profile, item.data())).map((item) => [item.id, serializable(item.data())]));
   const unreviewed = reportRows.filter((item) => !["reviewed", "not_required"].includes(String(item.reviewStatus || "")));
-  return { range, profile, plan: plan.exists && sameDemoScope(profile, plan.data()!) ? serializable(plan.data()) : null, reports: reportRows, logs: logRows, attendance: attendanceRows, observations: observationRows.map((item) => ({ ...item, product: productById.get(String(item.productId)) || null, photos: undefined })), unreviewed };
+  const planRows = plans.docs.filter((item) => {
+    const row = item.data();
+    return sameDemoScope(profile, row) && String(row.weekStart) <= range.weekEnd
+      && String(row.weekEnd || weekRange(String(row.weekStart)).weekEnd) >= range.weekStart;
+  }).map((item) => serializable(item.data())).sort((a, b) => String(a.weekStart).localeCompare(String(b.weekStart)));
+  const plan = periodEnd && planRows.length ? Object.fromEntries(
+    ["goals", "productFields", "visitPlans", "deliverables", "consultations"].map((key) => [key,
+      planRows.filter((row) => row[key]).map((row) => `${row.weekStart}〜${row.weekEnd || weekRange(String(row.weekStart)).weekEnd}: ${row[key]}`).join("\n")])
+  ) : planRows[0] || null;
+  return { range, profile, plan, reports: reportRows, logs: logRows, attendance: attendanceRows, observations: observationRows.map((item) => ({ ...item, product: productById.get(String(item.productId)) || null, photos: undefined })), unreviewed };
 }
 
 function fallbackWeeklySections(
@@ -2377,7 +2425,18 @@ function fallbackWeeklySections(
     const tag = String(row.tagLabel || row.category || "未分類");
     groupedLogs.set(tag, [...(groupedLogs.get(tag) || []), row]);
   }
-  const themes = [...groupedLogs.entries()].slice(0, 8).map(([tag, rows]) => ({
+  for (const row of source.reports) {
+    const tag = String(row.category || "日報");
+    groupedLogs.set(tag, [...(groupedLogs.get(tag) || []), { ...row, workDate: row.reportDate, text: [row.activities, row.findings, row.nextPlan].filter(Boolean).join("\n") }]);
+  }
+  for (const row of source.observations) {
+    const tag = "商品候補";
+    groupedLogs.set(tag, [...(groupedLogs.get(tag) || []), { ...row, workDate: row.discoveredDate, text: `${row.product?.name || "商品候補"} ${row.reasonJapanese || row.reasonOriginal || ""}` }]);
+  }
+  const groups = [...groupedLogs.entries()];
+  // Keep every source record even when there are more categories than theme slots.
+  const themeGroups = groups.length <= 30 ? groups : [...groups.slice(0, 29), ["その他の記録", groups.slice(29).flatMap(([tag, rows]) => rows.map((row) => ({ ...row, text: `【${tag}】${row.text || ""}` })))] as [string, typeof source.logs]];
+  const themes = themeGroups.map(([tag, rows]) => ({
     title: tag,
     objective: "記録なし（会議で確認）",
     activities: rows.map((row) => `${row.workDate} ${row.text || ""}`).join("\n"),
@@ -2450,10 +2509,13 @@ function weeklyMetrics(source: Awaited<ReturnType<typeof weeklySourceData>>) {
 
 export const generateWeeklyReport = onCall({ ...callableOptions, secrets: [openAIKey], timeoutSeconds: 120, memory: "512MiB" }, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
-    const input = z.object({ userId: z.string().min(1).max(128), weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(request.data);
+    const auth = await requireAuth(request.auth); requireManager(auth);
+    const input = generateReportInputSchema.parse(request.data);
+    const monthly = "periodStart" in input;
+    const start = monthly ? input.periodStart : input.weekStart;
+    const end = monthly ? input.periodEnd : undefined;
     const profile = await userProfile(input.userId);
-    const source = await weeklySourceData(input.userId, input.weekStart);
+    const source = await weeklySourceData(input.userId, start, end);
     const metrics = weeklyMetrics(source);
     let sections = fallbackWeeklySections(source);
     let aiError = "";
@@ -2466,14 +2528,15 @@ export const generateWeeklyReport = onCall({ ...callableOptions, secrets: [openA
         reasoning: { effort: "low" },
         safety_identifier: createHash("sha256").update(input.userId).digest("hex").slice(0, 32),
         input: [
-          { role: "system", content: `あなたは月曜定例会のための業務レジュメを作る記録整理担当です。入力された記録だけを根拠に、具体的で読みやすい日本語の週次レポートを作成してください。
+          { role: "system", content: `あなたは業務の振り返りを整理する記録担当です。入力された記録だけを根拠に、具体的で読みやすい日本語の${monthly ? "指定期間の月次レポート" : "週次レポート"}の下書きを作成してください。期間は${source.range.weekStart}〜${source.range.weekEnd}（両端を含む）です。${monthly ? "前週・今週とは表現せず、対象期間・今後と表現してください。" : ""}
 ルール:
 - 訪問、成果、中国市場の意見、課題、予定、担当者、期限を推測・創作しない。
 - 不明な項目は「記録なし（会議で確認）」とする。
-- テーマはタグ・会社共通カテゴリ・業務内容を基に2〜6件にまとめ、活動と成果を分ける。
+- テーマはタグ・会社共通カテゴリ・業務内容を基に最大30件にまとめ、活動と成果を分ける。個別に出力を選べるよう、無関係な案件を混ぜない。
 - 各テーマのsourceReferencesには根拠となった日付を入れる。
 - 中国市場の知見は本人が明示した内容だけを記載する。
 - 次週優先事項は記録に明示されたものをconfirmed、AIによる提案はproposalとし、提案であることを隠さない。
+- dueDateは記録に明示された期限だけをYYYY-MM-DDで返す。不明な場合は空文字にし、説明文を入れない。
 - 未確認日報がある場合は必ず明記する。
 - 在留資格への適合性や法的評価は行わない。
 - 写真、添付、申請資料は入力されていない。存在を推測しない。
@@ -2484,10 +2547,10 @@ export const generateWeeklyReport = onCall({ ...callableOptions, secrets: [openA
       });
       sections = weeklyReportSectionsSchema.parse(JSON.parse(response.output_text));
     } catch (error) { aiError = safeError(error); }
-    const ref = firestore.doc(`weeklyReports/${weekDocumentId(input.userId, source.range.weekStart)}`);
+    const ref = firestore.doc(`weeklyReports/${reportDocumentId(input.userId, start, end)}`);
     const previous = await ref.get();
     if (previous.exists) requireSameDemoScope(profile, previous.data()!);
-    await ref.set({ ...sections, metrics, userId: input.userId, userName: profile.displayName || "", ...demoFields(profile), weekStart: source.range.weekStart, weekEnd: source.range.weekEnd, status: "ai_draft", hasUnreviewedReports: source.unreviewed.length > 0, unreviewedReportCount: source.unreviewed.length, aiError, revision: Number(previous.data()?.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), createdAt: previous.data()?.createdAt || FieldValue.serverTimestamp() }, { merge: true });
+    await ref.set({ ...sections, ...(monthly ? { reportKind: "monthly", periodStart: start, periodEnd: end } : {}), metrics, userId: input.userId, userName: profile.displayName || "", ...demoFields(profile), weekStart: source.range.weekStart, weekEnd: source.range.weekEnd, status: "ai_draft", hasUnreviewedReports: source.unreviewed.length > 0, unreviewedReportCount: source.unreviewed.length, aiError, revision: Number(previous.data()?.revision || 0) + 1, updatedAt: FieldValue.serverTimestamp(), createdAt: previous.data()?.createdAt || FieldValue.serverTimestamp() }, { merge: true });
     await markMonthlyPackagesForRange(input.userId, source.range.weekStart, source.range.weekEnd);
     return { id: ref.id, sections, metrics, unreviewedReportCount: source.unreviewed.length, aiError };
   } catch (error) { return toHttpsError(error); }
@@ -2495,7 +2558,7 @@ export const generateWeeklyReport = onCall({ ...callableOptions, secrets: [openA
 
 export const saveWeeklyReport = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ reportId: z.string().min(1).max(260), status: z.enum(weeklyReportStatuses), reason: z.string().trim().max(500).optional().default(""), sections: weeklyReportSectionsSchema }).parse(request.data);
     const ref = firestore.doc(`weeklyReports/${input.reportId}`);
     const before = await ref.get();
@@ -2503,7 +2566,10 @@ export const saveWeeklyReport = onCall(callableOptions, async (request) => {
     const data = before.data()!;
     const profile = await userProfile(String(data.userId));
     requireSameDemoScope(profile, data);
-    const source = await weeklySourceData(String(data.userId), String(data.weekStart));
+    const source = await weeklySourceData(String(data.userId), String(data.periodStart || data.weekStart), data.reportKind === "monthly" ? String(data.periodEnd || data.weekEnd) : undefined);
+    if (input.status === "finalized" && data.reportKind === "monthly" && !input.sections.themes.some((theme) => theme.includeInReport !== false)) {
+      throw new HttpsError("failed-precondition", "出力するテーマを1件以上選択してください。");
+    }
     if (input.status === "finalized" && source.unreviewed.length) throw new HttpsError("failed-precondition", `未確認の日報が${source.unreviewed.length}件あるため確定できません。`);
     const batch = firestore.batch();
     if (Number(data.revision || 0) > 0) {
@@ -2519,7 +2585,7 @@ export const saveWeeklyReport = onCall(callableOptions, async (request) => {
 
 export const saveWeeklyMeeting = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const actionItem = z.object({ id: z.string().max(128), text: z.string().trim().max(2000), owner: z.string().trim().max(120), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), completed: z.boolean() });
     const input = z.object({ weeklyReportId: z.string().min(1).max(260), userId: z.string().min(1).max(128), weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), heldAt: z.string().max(40), attendees: z.string().max(2000), feedback: z.string().max(8000), chinaMarketInformation: z.string().max(8000), decisions: z.string().max(8000), currentWeekGoals: z.string().max(8000), nextCheckItems: z.string().max(8000), employeeComment: z.string().max(8000), actionItems: z.array(actionItem).max(50), status: z.enum(["draft", "finalized"]) }).parse(request.data);
@@ -2546,7 +2612,7 @@ export const saveWeeklyMeeting = onCall(callableOptions, async (request) => {
 
 export const saveNonWorkingReason = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth);
+    const auth = await requireAuth(request.auth);
     if (roleOf(auth) === "president_viewer") throw new HttpsError("permission-denied", "閲覧専用アカウントです。");
     const input = z.object({ userId: z.string().min(1).max(128), workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), reasonType: z.enum(nonWorkingReasonTypes), note: z.string().trim().max(2000).optional().default("") }).parse(request.data);
     requireSubjectAccess(auth, input.userId);
@@ -2564,7 +2630,7 @@ export const saveNonWorkingReason = onCall(callableOptions, async (request) => {
 
 export const saveEvidenceReference = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ id: z.string().optional(), subjectUserId: z.string().min(1).max(128), title: z.string().trim().min(1).max(240), category: z.enum(evidenceCategories), documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), parties: z.string().trim().max(1000).optional().default(""), driveUrl: z.string().url().max(2000).refine((value) => /^https:\/\//.test(value)), description: z.string().trim().max(4000).optional().default(""), visibility: z.enum(evidenceVisibilities), relatedReportIds: z.array(z.string().max(260)).max(50).optional().default([]), relatedWeeklyReportIds: z.array(z.string().max(260)).max(50).optional().default([]), relatedProductIds: z.array(z.string().max(260)).max(50).optional().default([]) }).parse(request.data);
     const { id, ...values } = input;
     const profile = await userProfile(input.subjectUserId);
@@ -2579,7 +2645,7 @@ export const saveEvidenceReference = onCall(callableOptions, async (request) => 
 
 export const saveMonthlyPackage = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ userId: z.string().min(1).max(128), month: z.string().regex(/^\d{4}-\d{2}$/), driveUrl: z.string().url().max(2000).refine((value) => /^https:\/\//.test(value)) }).parse(request.data);
     const profile = await userProfile(input.userId);
     if (profile.isDemo === true) throw new HttpsError("failed-precondition", "デモ資料は正式な月次確定版として登録できません。");
@@ -2597,7 +2663,7 @@ export const saveMonthlyPackage = onCall(callableOptions, async (request) => {
 
 export const saveRenewalChecklist = onCall(callableOptions, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const item = z.object({ id: z.string().max(128), label: z.string().trim().min(1).max(500), owner: z.string().trim().max(120), status: z.enum(["not_started", "in_progress", "completed", "not_applicable"]), evidenceUrl: z.string().max(2000).refine((value) => !value || /^https:\/\//.test(value)), note: z.string().max(2000) });
     const input = z.object({ userId: z.string().min(1).max(128), residenceExpiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), administrativeScrivenerCheckDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), immigrationGuidanceCheckDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")), items: z.array(item).max(100) }).parse(request.data);
     const profile = await userProfile(input.userId);
@@ -2699,7 +2765,7 @@ function monthlyEvidenceHtml(input: {
 
 export const exportMonthlyBackup = onCall({ ...callableOptions, timeoutSeconds: 120, memory: "512MiB" }, async (request) => {
   try {
-    const auth = requireAuth(request.auth); requireManager(auth);
+    const auth = await requireAuth(request.auth); requireManager(auth);
     const input = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/), userId: z.string().optional() }).parse(request.data);
     const monthStart = `${input.month}-01`;
     const monthEnd = `${input.month}-31`;
@@ -2891,7 +2957,7 @@ const weeklyReportFormat = {
             title: stringField,
             basis: { type: "string", enum: ["confirmed", "proposal"] },
             owner: stringField,
-            dueDate: stringField,
+            dueDate: { type: "string", pattern: "^$|^\\d{4}-\\d{2}-\\d{2}$", description: "明示された期限のみYYYY-MM-DD形式。記録にない場合は空文字。" },
             definitionOfDone: stringField
           },
           required: ["title", "basis", "owner", "dueDate", "definitionOfDone"],
@@ -2936,3 +3002,7 @@ const productImageAnalysisFormat = {
     additionalProperties: false
   }
 };
+
+export const completeInitialPasswordChange = onCall(callableOptions, async (request) => {
+  return completePasswordSetup(request.auth, request.data, { db: firestore, auth: getAuth() });
+});

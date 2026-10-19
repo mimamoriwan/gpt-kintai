@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://gpt-kintai.web.app", "https://gpt-kintai.firebaseapp.com"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Disposition", "Content-Length"],
+    "maxAgeSeconds": 3600
+  }
+]

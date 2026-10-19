@@ -1,5 +1,7 @@
 # Firebase本番設定
 
+既存環境の保存基点と配置範囲は [本番版のGitHub保存記録](production-sync.md) を先に確認してください。以下のプロジェクト・アカウント作成は初期構築用であり、既存本番への再実行手順ではありません。
+
 ## 1. プロジェクトを用意する
 
 1. 会社管理のGoogleアカウントでFirebaseプロジェクトを作成し、Blazeプランへ変更します。
@@ -38,9 +40,10 @@ npm run bootstrap:production -- --project <プロジェクトID> --mode manager-
 
 ```bash
 npm run build:all
-firebase use <プロジェクトID>
-firebase deploy
+firebase deploy --project <プロジェクトID> --only hosting
 ```
+
+既存本番のFunctionsはCOCOと共有しています。変更した関数を `--only functions:<関数名>` で指定し、現行ソースと構成を照合してから個別に配置します。`firebase deploy` や `--only functions` による一括配置は行いません。Rules・indexes・Storageも現在の配備と差分を確認したうえで対象を限定します。
 
 既存の予定データがある環境でカレンダーv2へ更新するときは、配置前に対象件数を確認し、バックアップ後に移行を適用します。
 

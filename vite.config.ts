@@ -6,8 +6,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
-      includeAssets: ["favicon.svg"],
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      registerType: "prompt",
+      includeAssets: ["favicon.svg", "pwa-192.png", "pwa-512.png", "apple-touch-icon.png"],
       manifest: {
         name: "GyoumuLog 勤怠・業務記録",
         short_name: "GyoumuLog",
@@ -18,14 +21,11 @@ export default defineConfig({
         start_url: "/",
         lang: "ja",
         icons: [
-          { src: "/pwa-192.svg", sizes: "192x192", type: "image/svg+xml" },
-          { src: "/pwa-512.svg", sizes: "512x512", type: "image/svg+xml" }
+          { src: "/pwa-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/pwa-512.png", sizes: "512x512", type: "image/png" }
         ]
       },
-      workbox: {
-        navigateFallback: "/index.html",
-        runtimeCaching: []
-      }
+      injectManifest: { globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"] }
     })
   ],
   build: {

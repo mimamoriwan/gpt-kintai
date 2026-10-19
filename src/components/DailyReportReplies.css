@@ -1,0 +1,19 @@
+.daily-reply-notice { margin: 16px auto; padding: 14px 18px; max-width: 1200px; border: 1px solid #c7d7ff; border-radius: 14px; background: #eff5ff; color: #173a75; }
+.daily-reply-notice [role="status"] { display: flex; align-items: center; gap: 8px; }
+.daily-reply-notice summary { margin-top: 10px; cursor: pointer; }
+.daily-reply-notice ul { margin: 8px 0 0; padding: 0; list-style: none; max-height: 240px; overflow-y: auto; }
+.daily-reply-notice li { margin: 6px 0; }
+.daily-reply-notice button { white-space: normal; text-align: left; }
+.modal-backdrop.daily-reply-backdrop { z-index: 1400; padding: 16px; }
+.modal.daily-reply-dialog { width: min(680px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; }
+.daily-reply-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+.daily-reply-body { overflow-y: auto; min-height: 0; padding: 12px 0; }
+.daily-reply-body p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.daily-reply-dialog .employee-report-comments header { flex-wrap: wrap; }
+.daily-reply-dialog .modal-actions { flex-shrink: 0; flex-wrap: wrap; }
+@media (max-width: 600px) { .daily-reply-notice { margin: 10px 12px; padding: 12px; } .modal.daily-reply-dialog { padding: 16px; } }
+
+.daily-reply-dialog .employee-report-comments article header { display: flex; gap: 8px; align-items: center; }
+.employee-report-comments-heading { flex-wrap: wrap; }
+.daily-reply-dialog .employee-report-comments article p { font-size: calc(14px * var(--app-font-scale)); line-height: 1.65; }
+.daily-reply-dialog .employee-report-comments article time { font-size: calc(11px * var(--app-font-scale)); }

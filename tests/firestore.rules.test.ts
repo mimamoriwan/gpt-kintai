@@ -1,15 +1,51 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestContext, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { getBytes, ref, uploadBytes } from "firebase/storage";
 import { readFileSync } from "node:fs";
+import type { EvidenceReference } from "../src/types";
+
+type TestFirestore = ReturnType<RulesTestContext["firestore"]>;
+const serviceFirebase = vi.hoisted(() => ({ db: undefined as TestFirestore | undefined }));
+
+// Exercise the production watcher against the emulator without initializing a
+// real Firebase app or changing the query that the service constructs.
+vi.mock("../src/firebase", () => ({
+  get db() {
+    if (!serviceFirebase.db) throw new Error("An emulator database must be selected before subscribing");
+    return serviceFirebase.db;
+  },
+  functions: {},
+  storage: {},
+  prepareCallableSecurityContext: vi.fn()
+}));
+
+import { watchEvidenceReferences } from "../src/services/api";
+
+async function firstEvidenceSnapshot(db: TestFirestore, userId: string, canViewAll = false): Promise<EvidenceReference[]> {
+  serviceFirebase.db = db;
+  let unsubscribe = () => {};
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<EvidenceReference[]>((resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error("Evidence subscription did not settle")), 10_000);
+      unsubscribe = watchEvidenceReferences(userId, canViewAll, resolve, reject);
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    unsubscribe();
+    serviceFirebase.db = undefined;
+  }
+}
 
 let env: RulesTestEnvironment;
 beforeAll(async () => {
+  const firestoreAddress = new URL(`http://${process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080"}`);
+  const storageAddress = new URL(`http://${process.env.FIREBASE_STORAGE_EMULATOR_HOST || "127.0.0.1:9199"}`);
   env = await initializeTestEnvironment({
-    projectId: "demo-kintai-rules",
-    firestore: { rules: readFileSync("firestore.rules", "utf8"), host: "127.0.0.1", port: 8080 },
-    storage: { rules: readFileSync("storage.rules", "utf8"), host: "127.0.0.1", port: 9199 }
+    projectId: process.env.GCLOUD_PROJECT || "demo-kintai-rules",
+    firestore: { rules: readFileSync("firestore.rules", "utf8"), host: firestoreAddress.hostname, port: Number(firestoreAddress.port) },
+    storage: { rules: readFileSync("storage.rules", "utf8"), host: storageAddress.hostname, port: Number(storageAddress.port) }
   });
 });
 beforeEach(async () => {
@@ -115,7 +151,7 @@ beforeEach(async () => {
     await setDoc(doc(context.firestore(), "weeklyMeetings", "fang_2026-07-27"), { userId: "fang", weekStart: "2026-07-27", finalized: true });
     await setDoc(doc(context.firestore(), "nonWorkingReasons", "fang_2026-07-30"), { userId: "fang", workDate: "2026-07-30", reasonType: "paid_leave" });
     await setDoc(doc(context.firestore(), "evidenceReferences", "fang-work"), { subjectUserId: "fang", visibility: "work", title: "商品調査資料" });
-    await setDoc(doc(context.firestore(), "evidenceReferences", "fang-confidential"), { subjectUserId: "fang", visibility: "confidential", title: "雇用資料" });
+    await setDoc(doc(context.firestore(), "evidenceReferences", "fang-confidential"), { subjectUserId: "fang", visibility: "employment_confidential", title: "雇用資料" });
     await setDoc(doc(context.firestore(), "evidenceReferences", "other-work"), { subjectUserId: "other", visibility: "work", title: "他人の資料" });
     await setDoc(doc(context.firestore(), "monthlyEvidencePackages", "fang_2026-07"), { userId: "fang", month: "2026-07", versions: [] });
     await setDoc(doc(context.firestore(), "renewalChecklists", "fang"), { userId: "fang", residenceExpiryDate: "2027-07-26" });
@@ -154,6 +190,47 @@ describe("Firestore access control", () => {
     await assertFails(setDoc(doc(president, "presidentInstructions", "direct-president"), { recipientIds: ["fang"], isDemo: false }));
     await assertFails(updateDoc(doc(fang, "presidentInstructions", "instruction-fang"), { status: "completed" }));
   });
+  it("keeps announcement chats private to the author and one recipient", async () => {
+    const base = "presidentInstructions/chat-notice";
+    const path = `${base}/conversations/fang/messages/message-1`;
+    const demoPath = "presidentInstructions/demo-chat/conversations/demo-fang/messages/message-1";
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, base), { authorId: "president", recipientIds: ["fang", "other"], isDemo: false, status: "completed" });
+      await setDoc(doc(db, path), { senderId: "president", body: "個別の返信" });
+      await setDoc(doc(db, "presidentInstructions/demo-chat"), { authorId: "demo-author", recipientIds: ["demo-fang"], isDemo: true, demoDatasetId: "demo-set" });
+      await setDoc(doc(db, demoPath), { senderId: "demo-author", body: "デモの返信" });
+    });
+    for (const uid of ["president", "fang"]) {
+      const db = env.authenticatedContext(uid, { role: uid === "president" ? "president_viewer" : "employee" }).firestore();
+      await assertSucceeds(getDoc(doc(db, path)));
+      await assertSucceeds(getDocs(collection(db, `${base}/conversations/fang/messages`)));
+      await assertFails(setDoc(doc(db, path.replace("message-1", "message-2")), { senderId: uid, body: "直接送信" }));
+      await assertFails(updateDoc(doc(db, path), { body: "改変" }));
+      await assertFails(deleteDoc(doc(db, path)));
+    }
+    for (const uid of ["other", "manager", "outsider"]) {
+      const db = env.authenticatedContext(uid, { role: "employee_manager" }).firestore();
+      await assertFails(getDoc(doc(db, path)));
+      await assertFails(getDocs(collection(db, `${base}/conversations/fang/messages`)));
+    }
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), path)));
+    await assertFails(getDocs(collection(env.authenticatedContext("president").firestore(), `${base}/conversations/outsider/messages`)));
+    const demo = env.authenticatedContext("demo-fang", { isDemo: true, demoDatasetId: "demo-set" }).firestore();
+    await assertSucceeds(getDoc(doc(demo, demoPath)));
+    await assertFails(getDoc(doc(demo, path)));
+    await assertFails(getDoc(doc(env.authenticatedContext("demo-fang").firestore(), demoPath)));
+    await assertFails(getDoc(doc(env.authenticatedContext("demo-fang", { isDemo: true, demoDatasetId: "other-set" }).firestore(), demoPath)));
+    await env.withSecurityRulesDisabled(async (context) => { await updateDoc(doc(context.firestore(), base), { status: "cancelled" }); });
+    await assertSucceeds(getDoc(doc(env.authenticatedContext("fang").firestore(), path)));
+    await env.withSecurityRulesDisabled(async (context) => { await setDoc(doc(context.firestore(), "users/fang"), { passwordChangeRequired: true }); });
+    await assertFails(getDoc(doc(env.authenticatedContext("fang").firestore(), path)));
+    await assertFails(getDocs(collection(env.authenticatedContext("fang").firestore(), `${base}/conversations/fang/messages`)));
+    await env.withSecurityRulesDisabled(async (context) => { await setDoc(doc(context.firestore(), "users/fang"), { passwordAuthTimeAfter: 100 }); });
+    await assertFails(getDoc(doc(env.authenticatedContext("fang", { auth_time: 99 }).firestore(), path)));
+    await assertSucceeds(getDoc(doc(env.authenticatedContext("fang", { auth_time: 101 }).firestore(), path)));
+  });
+
   it("denies all direct client writes including president writes", async () => {
     const president = env.authenticatedContext("president", { role: "president_viewer" }).firestore();
     const fang = env.authenticatedContext("fang", { role: "employee" }).firestore();
@@ -427,6 +504,61 @@ describe("Firestore access control", () => {
     await assertFails(getDoc(doc(president, "renewalChecklists", "fang")));
   });
 
+  it("subscribes employees only to their own work evidence, including legacy records", async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "evidenceReferences", "fang-work-current"), {
+        subjectUserId: "fang", visibility: "work", isDemo: false
+      });
+    });
+    const employee = env.authenticatedContext("fang", { role: "employee" }).firestore();
+
+    const rows = await firstEvidenceSnapshot(employee, "fang");
+
+    expect(rows.map((row) => row.id).sort()).toEqual(["fang-work", "fang-work-current"]);
+  });
+
+  it("delivers an empty evidence snapshot for an employee with no matching records", async () => {
+    const employee = env.authenticatedContext("evidence-empty", { role: "employee" }).firestore();
+
+    await expect(firstEvidenceSnapshot(employee, "evidence-empty")).resolves.toEqual([]);
+  });
+
+  it.each(["employee_manager", "president_viewer"])("preserves the unrestricted evidence subscription for %s", async (role) => {
+    const viewer = env.authenticatedContext("evidence-viewer", { role }).firestore();
+
+    const rows = await firstEvidenceSnapshot(viewer, "evidence-viewer", true);
+
+    expect(rows.map((row) => row.id).sort()).toEqual(["fang-confidential", "fang-work", "other-work"]);
+  });
+
+  it("forwards the permission error for an unauthenticated evidence subscription", async () => {
+    const unauthenticated = env.unauthenticatedContext().firestore();
+
+    await expect(firstEvidenceSnapshot(unauthenticated, "fang")).rejects.toMatchObject({ code: "permission-denied" });
+  });
+
+  it("rejects an employee requesting the unrestricted evidence subscription", async () => {
+    const employee = env.authenticatedContext("fang", { role: "employee" }).firestore();
+
+    await expect(firstEvidenceSnapshot(employee, "fang", true)).rejects.toMatchObject({ code: "permission-denied" });
+  });
+
+  it("rejects the old evidence query that omitted the work visibility constraint", async () => {
+    const employee = env.authenticatedContext("fang", { role: "employee" }).firestore();
+
+    await assertFails(getDocs(query(collection(employee, "evidenceReferences"), where("subjectUserId", "==", "fang"))));
+  });
+
+  it.each([
+    ["other", "work"],
+    ["fang", "employment_confidential"]
+  ])("rejects an employee evidence query for subject %s and visibility %s", async (subjectUserId, visibility) => {
+    const employee = env.authenticatedContext("fang", { role: "employee" }).firestore();
+
+    await assertFails(getDocs(query(collection(employee, "evidenceReferences"),
+      where("subjectUserId", "==", subjectUserId), where("visibility", "==", visibility))));
+  });
+
   it("keeps workflow writes on validated server functions for all three roles", async () => {
     const fang = env.authenticatedContext("fang", { role: "employee" }).firestore();
     const manager = env.authenticatedContext("manager", { role: "employee_manager" }).firestore();
@@ -555,5 +687,195 @@ describe("Storage access control", () => {
       new Uint8Array([1]),
       { contentType: "image/jpeg" }
     ));
+  });
+});
+
+describe("company initiatives have no direct client data route", () => {
+  const featureCollections = ["businessSettings", "businessThemes", "businessInitiatives", "businessUpdates", "businessHistory", "businessTranslations"];
+  it.each(["employee_manager", "president_viewer", "employee", "anonymous"])("rejects direct reads, listings, writes and translation cache access for %s", async (role) => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      for (const name of featureCollections) await setDoc(doc(context.firestore(), name, "protected"), { memberIds: ["actor"], body: "shared only by callable", active: true });
+    });
+    const db = role === "anonymous" ? env.unauthenticatedContext().firestore() : env.authenticatedContext("actor", { role }).firestore();
+    for (const name of featureCollections) {
+      await assertFails(getDoc(doc(db, name, "protected")));
+      await assertFails(getDocs(collection(db, name)));
+      await assertFails(setDoc(doc(db, name, "protected"), { enabled: true, memberIds: ["actor"] }));
+    }
+  });
+});
+
+describe("required password change", () => {
+  const roles = ["employee", "employee_manager", "president_viewer"];
+  const protectedDocuments = [
+    "categories/default",
+    "companyHolidayOverrides/2026-07-31",
+    "calendarEvents/shared-event",
+    "attendance/fang-record",
+    "dailyReports/fang-report",
+    "dailyReports/fang-report/revisions/first",
+    "dailyReportAutomations/fang_2026-07-27",
+    "presidentInstructions/instruction-fang",
+    "workLogs/fang-log",
+    "users/fang/workTags/real-tag",
+    "products/product-1",
+    "productObservations/fang-observation",
+    "productRevisions/revision-1",
+    "demoDatasets/demo-set",
+    "auditEvents/fang-event",
+    "dutyDefinitions/market-research",
+    "employmentBases/fang",
+    "sourceDocumentReferences/reason-letter",
+    "weeklyPlans/fang_2026-07-27",
+    "weeklyReports/fang_2026-07-27",
+    "weeklyReportRevisions/first",
+    "weeklyMeetings/fang_2026-07-27",
+    "nonWorkingReasons/fang_2026-07-30",
+    "evidenceReferences/fang-work",
+    "monthlyEvidencePackages/fang_2026-07",
+    "renewalChecklists/fang"
+  ];
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, "users/fang"), { role: "employee", passwordChangeRequired: true });
+      await setDoc(doc(db, "users/other"), { role: "employee" });
+      await setDoc(doc(db, "passwordSetups/fang"), { temporaryPasswordHash: "private-test-hash" });
+      await setDoc(doc(db, "categories/default"), { label: "General" });
+      await setDoc(doc(db, "dailyReports/fang-report"), { userId: "fang" });
+      await setDoc(doc(db, "dailyReports/fang-report/revisions/first"), { body: "private" });
+      await setDoc(doc(db, "users/fang/workTags/real-tag"), { userId: "fang", label: "Research" });
+      await setDoc(doc(db, "demoDatasets/demo-set"), { isDemo: true, demoDatasetId: "demo-set" });
+      await setDoc(doc(db, "auditEvents/fang-event"), { subjectUserId: "fang" });
+      await setDoc(doc(db, "weeklyReportRevisions/first"), { userId: "fang" });
+    });
+  });
+
+  it.each(roles)("blocks every work read and list despite the %s role claim", async (role) => {
+    // The role is deliberately present on the token: privileged viewer branches
+    // must not bypass the latest server-owned reset flag.
+    const db = env.authenticatedContext("fang", { role }).firestore();
+    for (const path of protectedDocuments) {
+      await assertFails(getDoc(doc(db, path)));
+      await assertFails(getDocs(collection(db, path.substring(0, path.lastIndexOf("/")))));
+    }
+    await assertFails(getDocs(query(collection(db, "attendance"), where("userId", "==", "fang"))));
+    await assertFails(getDocs(query(collection(db, "evidenceReferences"),
+      where("subjectUserId", "==", "fang"), where("visibility", "==", "work"))));
+  });
+
+  it.each(roles)("allows only recovery profile reads and rejects flag or setup tampering for %s", async (role) => {
+    const db = env.authenticatedContext("fang", { role }).firestore();
+    await assertSucceeds(getDoc(doc(db, "users/fang")));
+    await assertFails(getDoc(doc(db, "users/other")));
+    await assertFails(getDocs(collection(db, "users")));
+    await assertFails(updateDoc(doc(db, "users/fang"), { passwordChangeRequired: false }));
+    await assertFails(setDoc(doc(db, "users/fang"), { role, passwordChangeRequired: false }));
+    await assertFails(deleteDoc(doc(db, "users/fang")));
+    await assertFails(getDoc(doc(db, "passwordSetups/fang")));
+    await assertFails(getDocs(collection(db, "passwordSetups")));
+    await assertFails(setDoc(doc(db, "passwordSetups/fang"), { completed: true }));
+    await assertFails(deleteDoc(doc(db, "passwordSetups/fang")));
+  });
+
+  it.each(roles)("blocks direct work-log and tag mutations for %s", async (role) => {
+    const db = env.authenticatedContext("fang", { role }).firestore();
+    const log = { userId: "fang", workDate: "2026-09-17", tagLabel: "Research", text: "New work" };
+    await assertFails(setDoc(doc(db, "workLogs/new-log"), log));
+    await assertFails(updateDoc(doc(db, "workLogs/fang-log"), { text: "Changed work" }));
+    await assertFails(deleteDoc(doc(db, "workLogs/fang-log")));
+    await assertFails(setDoc(doc(db, "users/fang/workTags/new-tag"), { userId: "fang", label: "New tag" }));
+    await assertFails(updateDoc(doc(db, "users/fang/workTags/real-tag"), { label: "Changed tag" }));
+    await assertFails(deleteDoc(doc(db, "users/fang/workTags/real-tag")));
+  });
+
+  it.each(["missing profile", "legacy profile", "completed change"])("preserves access for a %s", async (state) => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      if (state === "missing profile") await deleteDoc(doc(context.firestore(), "users/fang"));
+      else await setDoc(doc(context.firestore(), "users/fang"), state === "legacy profile"
+        ? { role: "employee" }
+        : { role: "employee", passwordChangeRequired: false });
+    });
+    const db = env.authenticatedContext("fang", { role: "employee" }).firestore();
+    await assertSucceeds(getDoc(doc(db, "attendance/fang-record")));
+    await assertSucceeds(getDocs(query(collection(db, "attendance"), where("userId", "==", "fang"))));
+    await assertSucceeds(updateDoc(doc(db, "workLogs/fang-log"), { text: "Changed work" }));
+    await assertSucceeds(getDocs(collection(db, "users/fang/workTags")));
+    await assertFails(getDoc(doc(db, "passwordSetups/fang")));
+  });
+
+  it.each(roles)("requires a later sign-in after completion, including for %s", async (role) => {
+    const boundary = Math.floor(Date.now() / 1000) - 5;
+    const oldSession = env.authenticatedContext("fang", { role, auth_time: boundary - 1 }).firestore();
+    await assertFails(getDoc(doc(oldSession, "attendance/fang-record")));
+    await env.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), "users/fang"), {
+        passwordChangeRequired: false,
+        passwordAuthTimeAfter: boundary
+      });
+    });
+    const sameSecond = env.authenticatedContext("fang", { role, auth_time: boundary }).firestore();
+    for (const db of [oldSession, sameSecond]) {
+      await assertFails(getDoc(doc(db, "attendance/fang-record")));
+      await assertFails(getDocs(query(collection(db, "attendance"), where("userId", "==", "fang"))));
+      await assertFails(updateDoc(doc(db, "workLogs/fang-log"), { text: "Stale session" }));
+      await assertSucceeds(getDoc(doc(db, "users/fang")));
+      await assertFails(updateDoc(doc(db, "users/fang"), { passwordAuthTimeAfter: boundary - 2 }));
+    }
+    const freshSession = env.authenticatedContext("fang", { role, auth_time: boundary + 1 }).firestore();
+    await assertSucceeds(getDoc(doc(freshSession, "attendance/fang-record")));
+    await assertSucceeds(getDocs(query(collection(freshSession, "attendance"), where("userId", "==", "fang"))));
+    await assertSucceeds(updateDoc(doc(freshSession, "workLogs/fang-log"), { text: "Password setup completed" }));
+  });
+
+  const attachmentPaths = [
+    "reports/fang/report-1/photo.jpg",
+    "products/fang/observation-1/photo.jpg",
+    "president-instructions/instruction-fang/fang/photo.jpg",
+    "demo/demo-set/reports/fang/report-1/photo.jpg",
+    "demo/demo-set/products/fang/observation-1/photo.jpg",
+    "demo/demo-set/president-instructions/instruction-demo/fang/photo.jpg"
+  ];
+
+  it.each(roles)("blocks all normal and demo attachment reads and uploads for %s", async (role) => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      for (const path of attachmentPaths) {
+        await uploadBytes(ref(context.storage(), path), new Uint8Array([1]), { contentType: "image/jpeg" });
+      }
+    });
+    const normalStorage = env.authenticatedContext("fang", { role }).storage();
+    const demoStorage = env.authenticatedContext("fang", { role, isDemo: true, demoDatasetId: "demo-set" }).storage();
+    for (const path of attachmentPaths) {
+      const storage = path.startsWith("demo/") ? demoStorage : normalStorage;
+      await assertFails(getBytes(ref(storage, path)));
+      await assertFails(uploadBytes(ref(storage, path.replace("photo.jpg", "new-photo.jpg")),
+        new Uint8Array([1]), { contentType: "image/jpeg" }));
+    }
+  });
+
+  it.each(roles)("keeps old attachment sessions blocked after completion for %s", async (role) => {
+    const boundary = Math.floor(Date.now() / 1000) - 5;
+    // Every role can attach to an announcement; this checks a write path the
+    // president can normally use, rather than an already-forbidden report upload.
+    const path = "president-instructions/instruction-fang/fang/photo.jpg";
+    const oldStorage = env.authenticatedContext("fang", { role, auth_time: boundary - 1 }).storage();
+    await env.withSecurityRulesDisabled(async (context) => {
+      await uploadBytes(ref(context.storage(), path), new Uint8Array([1]), { contentType: "image/jpeg" });
+      await updateDoc(doc(context.firestore(), "users/fang"), {
+        passwordChangeRequired: false,
+        passwordAuthTimeAfter: boundary
+      });
+    });
+    const sameSecondStorage = env.authenticatedContext("fang", { role, auth_time: boundary }).storage();
+    for (const storage of [oldStorage, sameSecondStorage]) {
+      await assertFails(getBytes(ref(storage, path)));
+      await assertFails(uploadBytes(ref(storage, path.replace("photo.jpg", "new.jpg")),
+        new Uint8Array([1]), { contentType: "image/jpeg" }));
+    }
+    const freshStorage = env.authenticatedContext("fang", { role, auth_time: boundary + 1 }).storage();
+    await assertSucceeds(getBytes(ref(freshStorage, path)));
+    await assertSucceeds(uploadBytes(ref(freshStorage, path.replace("photo.jpg", "new.jpg")),
+      new Uint8Array([1]), { contentType: "image/jpeg" }));
   });
 });

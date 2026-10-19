@@ -1,0 +1,22 @@
+.app-check-notice { display: flex; align-items: flex-start; gap: 12px; padding: 14px clamp(20px,4vw,54px); border-bottom: 1px solid #e8c57c; background: #fff8e9; color: #64400a; font-size: calc(13px * var(--app-font-scale, 1)); line-height: 1.6; }
+/* Let users reach and copy their draft even when the recovery instructions,
+   update notice and other banners together exceed a small screen's height. */
+.app-header:has(.app-check-notice) { position: static; }
+.app-check-icon { flex: 0 0 auto; margin-top: 2px; color: #996200; }
+.app-check-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.app-check-copy > strong { font-size: 1.08em; }
+.app-check-copy p { margin: 5px 0 10px; }
+.app-check-notice button { min-height: 44px; padding: 9px 14px; border: 1px solid #d5c4a2; border-radius: 9px; font: inherit; font-weight: 700; cursor: pointer; }
+.app-check-notice button:focus-visible, .app-check-notice input:focus-visible { outline: 3px solid #155eef; outline-offset: 3px; }
+.app-check-secondary { color: #64400a; background: #fff; }
+.app-check-primary { color: #fff; background: #155eef; border-color: #155eef !important; }
+.app-check-primary:disabled { opacity: .5; cursor: default; }
+.app-check-confirmation { max-width: 760px; margin-top: 12px; padding: 12px; border: 1px solid #e8c57c; border-radius: 10px; background: #fff; }
+.app-check-confirmation label { display: flex; align-items: flex-start; gap: 9px; min-height: 44px; padding-block: 8px; font-weight: 700; cursor: pointer; }
+.app-check-confirmation input { flex: 0 0 20px; width: 20px; height: 20px; margin: 2px 0 0; accent-color: #155eef; }
+.app-check-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; margin-top: 8px; }
+@media (max-width: 760px) {
+  .app-check-notice { padding: 12px 16px; gap: 9px; }
+  .app-check-actions > button { flex: 1 1 140px; }
+}
+@media print { .app-check-notice { display: none; } }

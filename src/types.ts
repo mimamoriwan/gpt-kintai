@@ -43,6 +43,8 @@ export interface UserProfile extends DemoRecordMetadata {
   role: Role;
   locale: Locale;
   active: boolean;
+  passwordChangeRequired?: boolean;
+  passwordAuthTimeAfter?: number;
   createdAt?: Timestamp;
 }
 
@@ -60,6 +62,16 @@ export interface InstructionRecipientState {
   acknowledgedAt?: Timestamp;
   completedAt?: Timestamp;
   completionNote?: string;
+  lastRemindedAt?: Timestamp;
+  reminderCount?: number;
+}
+
+export interface InstructionMessage extends DemoRecordMetadata {
+  id: string;
+  senderId: string;
+  senderName: string;
+  body: string;
+  createdAt: Timestamp;
 }
 
 export interface PresidentInstruction extends DemoRecordMetadata {
@@ -88,6 +100,8 @@ export interface PresidentInstruction extends DemoRecordMetadata {
   cancellationReason?: string;
   replacesInstructionId?: string;
   replacedByInstructionId?: string;
+  lastReminderAt?: Timestamp;
+  reminderCount?: number;
   completedAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -167,6 +181,7 @@ export interface DailyReport extends ReportFields, DemoRecordMetadata {
   reviewedBy?: string;
   comments?: DailyReportComment[];
   commentsUpdatedAt?: Timestamp;
+  commentsReadIds?: string[];
   revision: number;
   submittedAt?: Timestamp;
   createdAt: Timestamp;
@@ -376,6 +391,7 @@ export interface WeeklyReportSections {
 }
 
 export interface WeeklyReportTheme {
+  includeInReport?: boolean;
   title: string;
   objective: string;
   activities: string;
@@ -408,6 +424,9 @@ export interface WeeklyReportMetrics {
 }
 
 export interface WeeklyReport extends WeeklyReportSections, DemoRecordMetadata {
+  reportKind?: "weekly" | "monthly";
+  periodStart?: string;
+  periodEnd?: string;
   id: string;
   userId: string;
   userName: string;
@@ -645,4 +664,4 @@ export interface ProductImageAnalysis extends ProductFacts {
   janValid: boolean;
 }
 
-export type NavSection = "home" | "report" | "records" | "products" | "workflow" | "admin" | "help" | "settings";
+export type NavSection = "home" | "report" | "records" | "products" | "workflow" | "weeklyTodo" | "business" | "admin" | "help" | "updates" | "settings" | "accounts";

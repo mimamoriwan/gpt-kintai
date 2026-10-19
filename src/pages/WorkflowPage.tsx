@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
+import { MonthlyReportPreview } from "../components/MonthlyReportPreview";
+import { reportPeriodError } from "../lib/reportPeriod";
 import { todayJst } from "../lib/format";
 import {
   exportMonth,
   generateWeeklyReport,
+  generateMonthlyReport,
   saveDutyDefinition,
   saveEmploymentBasis,
   saveEvidenceReference,
@@ -127,10 +130,10 @@ const buttonStyle = { border: 0, borderRadius: 10, padding: "11px 16px", font: "
 const quietButtonStyle = { ...buttonStyle, background: "#e8eef8", color: "#183153" };
 
 const ja = {
-  weekly: "週次計画・レポート", absence: "非勤務理由", evidence: "関連資料", basis: "雇用・職務基準", monthly: "月次資料", renewal: "在留更新準備"
+  weekly: "週次計画・週次／月次レポート", absence: "非勤務理由", evidence: "関連資料", basis: "雇用・職務基準", monthly: "月次資料", renewal: "在留更新準備"
 };
 const zh = {
-  weekly: "周计划和周报", absence: "未出勤原因", evidence: "相关资料", basis: "雇佣与职责标准", monthly: "月度资料", renewal: "在留更新准备"
+  weekly: "周计划、周报与月报", absence: "未出勤原因", evidence: "相关资料", basis: "雇佣与职责标准", monthly: "月度资料", renewal: "在留更新准备"
 };
 
 export function WorkflowPage(props: Props) {
@@ -165,7 +168,7 @@ export function WorkflowPage(props: Props) {
 function UserWeekPicker({ users, userId, setUserId, weekStart, setWeekStart, locked }: { users: UserProfile[]; userId: string; setUserId: (v: string) => void; weekStart: string; setWeekStart: (v: string) => void; locked: boolean }) {
   return <div style={gridStyle}>
     <Field label="対象者"><select style={inputStyle} value={userId} disabled={locked} onChange={(e) => setUserId(e.target.value)}>{users.map((user) => <option key={user.uid} value={user.uid}>{user.displayName}</option>)}</select></Field>
-    <Field label="週の開始日（月曜日）"><input style={inputStyle} type="date" value={weekStart} onChange={(e) => setWeekStart(mondayOf(e.target.value))} /></Field>
+    <Field label="週の開始日（月曜日）"><input style={inputStyle} type="date" value={weekStart} onChange={(e) => e.target.value && setWeekStart(mondayOf(e.target.value))} /></Field>
   </div>;
 }
 
@@ -176,8 +179,15 @@ function WeeklySection(props: Props) {
   const viewer = profile?.role === "president_viewer";
   const [userId, setUserId] = useState(profile?.uid || "");
   const [weekStart, setWeekStart] = useState(previousMonday());
+  const [monthly, setMonthly] = useState(false);
+  const [periodStart, setPeriodStart] = useState(`${todayJst().slice(0, 7)}-01`);
+  const [periodEnd, setPeriodEnd] = useState(todayJst());
+  const l = (ja: string, zh: string) => locale === "zh-CN" ? zh : ja;
+  const periodError = monthly ? reportPeriodError(periodStart, periodEnd, locale === "zh-CN") : "";
   const plan = props.weeklyPlans.find((row) => row.userId === userId && row.weekStart === weekStart);
-  const report = props.weeklyReports.find((row) => row.userId === userId && row.weekStart === weekStart);
+  const report = props.weeklyReports.find((row) => row.userId === userId && (monthly
+    ? row.reportKind === "monthly" && row.periodStart === periodStart && row.periodEnd === periodEnd
+    : row.reportKind !== "monthly" && row.weekStart === weekStart));
   const meeting = report ? props.weeklyMeetings.find((row) => row.weeklyReportId === report.id) : undefined;
   const [planForm, setPlanForm] = useState({ goals: "", productFields: "", visitPlans: "", deliverables: "", consultations: "" });
   const [sections, setSections] = useState<WeeklyReportSections>(blankSections);
@@ -198,9 +208,12 @@ function WeeklySection(props: Props) {
     await act(() => saveWeeklyPlan({ userId, weekStart, status, ...planForm, sourceLanguage: locale }), "週次計画を保存しました");
   }
 
+  const selectedCount = sections.themes.filter((theme) => theme.includeInReport !== false).length;
+  const dirty = JSON.stringify(sections) !== JSON.stringify(normalizedSections(report));
+
   async function saveReport(status: WeeklyReport["status"]) {
     if (!report) return;
-    await act(() => saveWeeklyReport({ reportId: report.id, sections, status, reason: report.revision ? "週次レポートを更新" : undefined }), status === "finalized" ? "週次レポートを確定しました" : "週次レポートを保存しました");
+    await act(() => saveWeeklyReport({ reportId: report.id, sections, status, reason: report.revision ? (monthly ? "月次レポートを更新" : "週次レポートを更新") : undefined }), status === "finalized" ? l("レポートを確定しました", "已确定报告") : l("レポートとテーマの出力選択を保存しました", "已保存报告和主题输出选项"));
   }
 
   async function saveMeeting(status: "draft" | "finalized") {
@@ -235,27 +248,49 @@ function WeeklySection(props: Props) {
   return <section style={{ display: "grid", gap: 18 }}>
     <div style={panelStyle}>
       <h2 style={{ margin: 0 }}>対象期間</h2>
-      <UserWeekPicker users={props.users} userId={userId} setUserId={setUserId} weekStart={weekStart} setWeekStart={setWeekStart} locked={!manager && !viewer} />
-      <small>{weekStart} 〜 {addDays(weekStart, 6)}</small>
+      <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, display: "grid", gap: 14 }}>
+        <Field label={l("レポートの種類", "报告类型")}><select style={inputStyle} value={monthly ? "monthly" : "weekly"} onChange={(e) => setMonthly(e.target.value === "monthly")}><option value="weekly">{l("週次レポート", "周报")}</option><option value="monthly">{l("月次レポート（期間指定）", "月报（指定期间）")}</option></select></Field>
+        {monthly ? <>
+          <div style={gridStyle}>
+            <Field label="対象者"><select style={inputStyle} value={userId} disabled={!manager && !viewer} onChange={(e) => setUserId(e.target.value)}>{props.users.map((user) => <option key={user.uid} value={user.uid}>{user.displayName}</option>)}</select></Field>
+            <Field label={l("開始日", "开始日期")}><input style={inputStyle} type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /></Field>
+            <Field label={l("終了日", "结束日期")}><input style={inputStyle} type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /></Field>
+          </div>
+          <small>{l("開始日・終了日を含めて集計します（最大366日）。", "统计包含开始和结束日期（最多366天）。")}</small>
+          {periodError && <p role="alert" style={{ color: "#b91c1c" }}>{periodError}</p>}
+          <Field label={l("保存済みの月次レポート", "已保存的月报")}><select style={inputStyle} value={report?.id || ""} onChange={(e) => {
+            const saved = props.weeklyReports.find((row) => row.id === e.target.value && row.userId === userId && row.reportKind === "monthly");
+            if (saved?.periodStart && saved.periodEnd) { setPeriodStart(saved.periodStart); setPeriodEnd(saved.periodEnd); }
+          }}><option value="">{l("期間を指定する／保存済みを選択", "指定期间／选择已保存报告")}</option>{props.weeklyReports.filter((row) => row.userId === userId && row.reportKind === "monthly").sort((a, b) => b.weekStart.localeCompare(a.weekStart)).map((row) => <option key={row.id} value={row.id}>{row.periodStart} 〜 {row.periodEnd}</option>)}</select></Field>
+        </> : <>
+          <UserWeekPicker users={props.users} userId={userId} setUserId={setUserId} weekStart={weekStart} setWeekStart={setWeekStart} locked={!manager && !viewer} />
+          <small>{weekStart} 〜 {addDays(weekStart, 6)}</small>
+        </>}
+      </fieldset>
     </div>
-    <div style={panelStyle}>
+    {!monthly && <div style={panelStyle}>
       <h2 style={{ margin: 0 }}>今週の計画</h2>
       {[ ["goals", "今週の目標"], ["productFields", "調査予定の商品・分野"], ["visitPlans", "訪問・出張・オンライン商談予定"], ["deliverables", "作成予定の資料・成果物"], ["consultations", "管理担当者に相談したいこと"] ].map(([key, label]) => <Field key={key} label={label}><textarea style={inputStyle} rows={2} value={planForm[key as keyof typeof planForm]} disabled={viewer} onChange={(e) => setPlanForm({ ...planForm, [key]: e.target.value })} /></Field>)}
       {!viewer && <div style={{ display: "flex", gap: 8 }}><button disabled={busy} style={quietButtonStyle} onClick={() => savePlan("draft")}>下書き保存</button>{manager && <button disabled={busy} style={buttonStyle} onClick={() => savePlan("confirmed")}>計画を確定</button>}</div>}
-    </div>
+    </div>}
     <div style={panelStyle} className="weekly-report-panel">
       <div className="weekly-no-print" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-        <h2 style={{ margin: 0 }}>前週のレポート・定例会レジュメ</h2>
-        {report && <button type="button" style={quietButtonStyle} onClick={printReport}>印刷・PDF保存</button>}
+        <h2 style={{ margin: 0 }}>{monthly ? l("月次レポート・テーマ別の確認", "月报与主题确认") : "前週のレポート・定例会レジュメ"}</h2>
+        {report && <button type="button" disabled={busy || (monthly && !selectedCount)} style={quietButtonStyle} onClick={printReport}>{monthly ? l("月次レポートを印刷・PDF保存", "打印月报／保存PDF") : "印刷・PDF保存"}</button>}
       </div>
       {report?.hasUnreviewedReports && <p className="weekly-no-print" style={{ color: "#b45309", fontWeight: 700 }}>管理者未確認の日報が {report.unreviewedReportCount} 件あります。確定前に確認してください。</p>}
-      {!report && <p style={{ color: "#64748b" }}>この週のレポートはまだ作成されていません。</p>}
-      {manager && <button className="weekly-no-print" disabled={busy} style={buttonStyle} onClick={() => act(() => generateWeeklyReport(userId, weekStart), "週次レポートの下書きを作成しました")}>AIで週次レポートを作成</button>}
-      {report && <div className="weekly-print-area">
-        <header className="weekly-report-heading">
+      {!report && <p style={{ color: "#64748b" }}>{monthly ? l("この期間のレポートはまだ作成されていません。", "此期间尚未创建报告。") : "この週のレポートはまだ作成されていません。"}</p>}
+      {monthly && <p className="weekly-no-print">{l("① 期間を指定してテーマ別の下書きを作成 → ② 内容を確認し、出力するテーマを選択 → ③ 保存・確定して月次レポートを出力", "① 指定期间生成主题草稿 → ② 确认内容并选择输出主题 → ③ 保存、确定并输出月报")}</p>}
+      {manager && <button className="weekly-no-print" disabled={busy || !!periodError || !userId} style={buttonStyle} onClick={() => {
+        if (report && !window.confirm(l("下書きを再作成すると、このレポートの編集内容と出力選択が置き換わります。再作成しますか？", "重新生成将替换此报告的编辑内容和输出选项。是否继续？"))) return;
+        void act(() => monthly ? generateMonthlyReport(userId, periodStart, periodEnd) : generateWeeklyReport(userId, weekStart), l("テーマ別の下書きを作成しました。内容と出力するテーマを確認してください。", "已创建主题草稿。请确认内容并选择输出主题。"));
+      }}>{busy ? l("処理中…", "处理中…") : monthly ? l("AIでテーマ別の月次下書きを作成", "AI生成月报主题草稿") : "AIで週次レポートを作成"}</button>}
+      {report?.aiError && <p className="weekly-no-print" role="status">{l("AIでの整理が完了しなかったため、元記録をまとめた下書きを表示しています。内容を確認・編集してください。", "AI整理未完成，当前显示按原始记录汇总的草稿。请确认并编辑内容。")}</p>}
+      {report && <fieldset disabled={busy} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }} className={monthly ? "weekly-no-print" : "weekly-print-area"}>
+        {!monthly && <header className="weekly-report-heading">
           <div><small>WEEKLY BUSINESS REVIEW</small><h2>週次業務レポート</h2><p>{weekStart} 〜 {addDays(weekStart, 6)}</p></div>
           <div><strong>{props.users.find((user) => user.uid === userId)?.displayName || "対象者"}</strong><span>{report.status === "finalized" ? "確定版" : "下書き"}</span>{report.isDemo && <span className="demo-badge compact">DEMO</span>}</div>
-        </header>
+        </header>}
 
         {report.metrics && <section className="weekly-metrics">
           <article><strong>{report.metrics.attendanceDays}</strong><span>勤務日</span></article>
@@ -266,7 +301,7 @@ function WeeklySection(props: Props) {
           <article><strong>{report.metrics.holidayWorkDays}</strong><span>休日勤務</span></article>
         </section>}
 
-        <section className="weekly-summary-block">
+        {!monthly && <><section className="weekly-summary-block">
           <Field label="総括（エグゼクティブ・サマリー）"><textarea style={inputStyle} rows={5} value={sections.executiveSummary} disabled={!manager} onChange={(e) => setSections({ ...sections, executiveSummary: e.target.value })} /></Field>
         </section>
         <section className="weekly-three-columns">
@@ -275,12 +310,14 @@ function WeeklySection(props: Props) {
           <Field label="会議で決めたいこと"><textarea style={inputStyle} rows={5} value={sections.decisionsNeeded} disabled={!manager} onChange={(e) => setSections({ ...sections, decisionsNeeded: e.target.value })} /></Field>
         </section>
 
+        </>}
         <section className="weekly-themes">
           <div className="weekly-section-title"><div><small>THEMES / PROJECTS</small><h3>テーマ・案件別の振り返り</h3></div>{manager && <button className="weekly-no-print" type="button" style={quietButtonStyle} onClick={() => setSections({ ...sections, themes: [...sections.themes, blankTheme()] })}>テーマを追加</button>}</div>
           {sections.themes.length === 0 && <p className="weekly-empty">テーマ別の記録はありません。</p>}
-          {sections.themes.map((theme, index) => <article className="weekly-theme-card" key={`theme-${index}`}>
+          {sections.themes.map((theme, index) => <article className={`weekly-theme-card${theme.includeInReport === false ? " weekly-no-print" : ""}`} key={`theme-${index}`}>
             <div className="weekly-theme-number">{String(index + 1).padStart(2, "0")}</div>
             <div className="weekly-theme-content">
+              {monthly && <label className="weekly-no-print" style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 700 }}><input type="checkbox" disabled={!manager} checked={theme.includeInReport !== false} onChange={(e) => setSections({ ...sections, themes: sections.themes.map((row, i) => i === index ? { ...row, includeInReport: e.target.checked } : row) })} />{l("このテーマを出力する", "输出此主题")}：{theme.title || index + 1}</label>}
               <Field label="テーマ／案件名"><input style={inputStyle} value={theme.title} disabled={!manager} onChange={(e) => setSections({ ...sections, themes: sections.themes.map((row, i) => i === index ? { ...row, title: e.target.value } : row) })} /></Field>
               <div style={gridStyle}>
                 <Field label="目的"><textarea style={inputStyle} rows={2} value={theme.objective} disabled={!manager} onChange={(e) => setSections({ ...sections, themes: sections.themes.map((row, i) => i === index ? { ...row, objective: e.target.value } : row) })} /></Field>
@@ -297,7 +334,7 @@ function WeeklySection(props: Props) {
           </article>)}
         </section>
 
-        <section className="weekly-priorities">
+        {!monthly && <><section className="weekly-priorities">
           <div className="weekly-section-title"><div><small>NEXT PRIORITIES</small><h3>今週の重点行動</h3></div>{manager && <button className="weekly-no-print" type="button" style={quietButtonStyle} onClick={() => setSections({ ...sections, nextPriorities: [...sections.nextPriorities, blankPriority()] })}>重点行動を追加</button>}</div>
           {sections.nextPriorities.length === 0 && <p className="weekly-empty">重点行動はまだ登録されていません。</p>}
           {sections.nextPriorities.map((priority, index) => <article className="weekly-priority-card" key={`priority-${index}`}>
@@ -318,11 +355,15 @@ function WeeklySection(props: Props) {
         <details className="weekly-legacy weekly-no-print">
           <summary>従来形式の8項目（過去資料との互換用）</summary>
           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>{sectionLabels.map(([key, label]) => <Field key={key} label={label}><textarea style={inputStyle} rows={3} value={sections[key] as string} disabled={!manager} onChange={(e) => setSections({ ...sections, [key]: e.target.value })} /></Field>)}</div>
-        </details>
-      </div>}
-      {report && manager && <div className="weekly-no-print" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button disabled={busy} style={quietButtonStyle} onClick={() => saveReport("manager_editing")}>編集内容を保存</button><button disabled={busy || report.hasUnreviewedReports} style={buttonStyle} onClick={() => saveReport("finalized")}>最終確定</button></div>}
+        </details></>}
+      </fieldset>}
+      {report && monthly && <>
+        <p className="weekly-no-print">{l(`出力対象：${selectedCount} / ${sections.themes.length} テーマ。以下のプレビューが印刷・PDFの内容です。`, `输出主题：${selectedCount} / ${sections.themes.length}。以下预览为打印／PDF内容。`)}</p>
+        <MonthlyReportPreview report={report} themes={sections.themes} locale={locale} dirty={dirty} />
+      </>}
+      {report && manager && <div className="weekly-no-print" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button disabled={busy} style={quietButtonStyle} onClick={() => saveReport("manager_editing")}>編集内容を保存</button><button disabled={busy || report.hasUnreviewedReports || (monthly && !selectedCount)} style={buttonStyle} onClick={() => saveReport("finalized")}>最終確定</button></div>}
     </div>
-    {report && <div style={panelStyle}>
+    {report && !monthly && <div style={panelStyle}>
       <h2 style={{ margin: 0 }}>月曜定例会</h2>
       {manager && <div style={gridStyle}><Field label="開催日時"><input style={inputStyle} type="datetime-local" value={meetingForm.heldAt} onChange={(e) => setMeetingForm({ ...meetingForm, heldAt: e.target.value })} /></Field><Field label="出席者"><input style={inputStyle} value={meetingForm.attendees} onChange={(e) => setMeetingForm({ ...meetingForm, attendees: e.target.value })} /></Field></div>}
       {([ ["feedback", "前週へのフィードバック"], ["chinaMarketInformation", "中国市場の情報"], ["decisions", "決定事項"], ["currentWeekGoals", "今週の目標"], ["nextCheckItems", "次回確認事項"] ] as const).map(([key, label]) => <Field key={key} label={label}><textarea style={inputStyle} rows={2} disabled={!manager} value={meetingForm[key]} onChange={(e) => setMeetingForm({ ...meetingForm, [key]: e.target.value })} /></Field>)}
