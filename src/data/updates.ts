@@ -17,6 +17,43 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-10-20-announcement-shared",
+    updatedAt: "2026-10-20T04:22:58+09:00",
+    kind: "feature",
+    content: {
+      ja: {
+        title: "お知らせをCOCOと共通化",
+        areas: [
+          "お知らせ",
+          "COCOお知らせ"
+        ],
+        changes: [
+          "お知らせの画面・入力チェック・返信・添付・通知・サーバー処理を共通部品にまとめ、両システムへ同じ改善を反映する仕組みを追加しました。",
+          "COCOからも同じお知らせの発信・確認・完了・個別返信を扱い、操作結果を共有できるようにしました。端末通知は段階的に切り替えます。"
+        ],
+        benefits: [
+          "どちらのシステムから操作しても同じ内容と対応状況を確認できます。",
+          "お知らせ機能の修正・改修を両システムで共有できます。"
+        ]
+      },
+      "zh-CN": {
+        title: "COCO与考勤系统共用通知功能",
+        areas: [
+          "通知",
+          "COCO通知"
+        ],
+        changes: [
+          "将通知界面、输入检查、回复、附件、推送与服务器处理整合为共用组件，使两套系统应用相同的改进。",
+          "可在COCO中发布、确认、完成处理及私聊回复同一条通知，并共享操作结果。设备推送将分阶段切换。"
+        ],
+        benefits: [
+          "从任一系统操作，都可查看相同的内容和处理状态。",
+          "通知功能的修复与改进可同步应用于两套系统。"
+        ]
+      }
+    }
+  },
+  {
     id: "2026-10-19-weekly-todo-ui",
     updatedAt: "2026-10-19T17:13:37+09:00",
     kind: "improvement",

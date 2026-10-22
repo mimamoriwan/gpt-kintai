@@ -1,3 +1,4 @@
+import {createAnnouncementUploader} from '@coco/announcements';
 import { httpsCallable } from "firebase/functions";
 import {
   collection,
@@ -242,37 +243,8 @@ export interface InstructionFileUploadOptions {
   onUploaded?: (attachment: Attachment) => void;
   onProgress?: (current: number, total: number) => void;
 }
-
-export async function uploadPresidentInstructionFiles(profile: UserProfile, instructionId: string, files: File[], existing: Attachment[], options: InstructionFileUploadOptions = {}): Promise<Attachment[]> {
-  const preparedFiles: File[] = [];
-  for (const file of files) preparedFiles.push(file.type.startsWith("image/") || /\.hei[cf]$/i.test(file.name) ? await compressProductImage(file) : file);
-  const validation = validateFiles(preparedFiles, existing);
-  if (validation) throw new Error(validation);
-  if (!preparedFiles.length) return [];
-  await prepareCallableSecurityContext(false);
-  const output: Attachment[] = [];
-  for (const file of preparedFiles) {
-    options.onProgress?.(output.length + 1, preparedFiles.length);
-    const id = crypto.randomUUID();
-    const prefix = profile.isDemo
-      ? `demo/${profile.demoDatasetId}/president-instructions/${instructionId}/${profile.uid}`
-      : `president-instructions/${instructionId}/${profile.uid}`;
-    const path = `${prefix}/${id}-${safeFilename(file.name)}`;
-    const objectRef = ref(storage, path);
-    await uploadBytes(objectRef, file, {
-      contentType: file.type,
-      customMetadata: {
-        ownerId: profile.uid,
-        instructionId,
-        ...(profile.isDemo ? { isDemo: "true", demoDatasetId: profile.demoDatasetId || "" } : {})
-      }
-    });
-    const attachment = { id, name: file.name, contentType: file.type, size: file.size, storagePath: path };
-    output.push(attachment);
-    options.onUploaded?.(attachment);
-  }
-  return output;
-}
+const uploadSharedAnnouncement=createAnnouncementUploader({prepare:()=>prepareCallableSecurityContext(false),put:async(file,attachment,instructionId,profile)=>{await uploadBytes(ref(storage,attachment.storagePath!),file,{contentType:file.type,customMetadata:{ownerId:profile.uid,instructionId,...(profile.isDemo?{isDemo:'true',demoDatasetId:profile.demoDatasetId||''}:{})}});return attachment;}});
+export async function uploadPresidentInstructionFiles(profile: UserProfile,instructionId: string,files: File[],existing: Attachment[],options: InstructionFileUploadOptions = {}):Promise<Attachment[]>{return uploadSharedAnnouncement(profile,instructionId,files,existing,options);}
 
 export function presidentInstructionAttachmentUrl(storagePath: string): Promise<string> {
   return getDownloadURL(ref(storage, storagePath));

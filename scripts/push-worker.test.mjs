@@ -8,7 +8,7 @@ beforeAll(async () => {
     entryPoints: ["src/sw.ts"], bundle: true, write: false, format: "iife",
     define: { "import.meta.env.VITE_FIREBASE_PROJECT_ID": '"fixture-project"', "import.meta.env.VITE_USE_FIREBASE_EMULATORS": '"false"', "import.meta.env": '{}' },
     plugins: [{ name: "worker-native-boundaries", setup(builder) {
-      builder.onResolve({ filter: /^(firebase\/|workbox-)|\/lib\/pushStorage$/ }, args => ({ path: args.path, namespace: "worker-fixture" }));
+      builder.onResolve({ filter: /^(firebase\/|workbox-)|\/lib\/pushStorage(?:\.js)?$/ }, args => ({ path: args.path, namespace: "worker-fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "worker-fixture" }, args => ({ contents: args.path.includes("pushStorage") ? `
         export const claimPushEvent = async (id, user) => {
           if (!fixture.state.enabled || fixture.state.userId !== user || fixture.seen.has(id)) return false;

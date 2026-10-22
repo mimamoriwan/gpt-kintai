@@ -18,7 +18,8 @@
     "calendar:v2:dry-run": "node scripts/migrate-calendar-v2.mjs --project gpt-kintai --confirm-project gpt-kintai",
     "bootstrap:production": "node scripts/bootstrap-production.mjs",
     "functions:build": "npm --prefix functions run build",
-    "build:all": "npm run build && npm run functions:build"
+    "build:all": "npm run build && npm run functions:build",
+    "prebuild": "node scripts/check-announcements.mjs ."
   },
   "dependencies": {
     "firebase": "^11.10.0",
@@ -28,7 +29,8 @@
     "react-dom": "^19.1.1",
     "workbox-core": "7.4.1",
     "workbox-precaching": "7.4.1",
-    "workbox-routing": "7.4.1"
+    "workbox-routing": "7.4.1",
+    "@coco/announcements": "file:vendor/coco-announcements-1.0.0-962539455302.tgz"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

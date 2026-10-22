@@ -9,13 +9,15 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "serve": "npm run build && firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions"
+    "deploy": "firebase deploy --only functions",
+    "prebuild": "node ../scripts/check-announcements.mjs .."
   },
   "dependencies": {
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.2.5",
     "openai": "^6.46.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@coco/announcements": "file:vendor/coco-announcements-1.0.0-962539455302.tgz"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

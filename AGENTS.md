@@ -11,12 +11,5 @@
 
 検証: 更新情報・メニューに変更がある場合は `npm test -- src/App.test.tsx src/pages/UpdatesPage.test.tsx` と `npm run build` を実行してください。
 
-## GitHub保存時の基点（2026年10月20日）
-
-現在の保存基点は2026年10月19日17:29:48.405（日本時間）の公開ソースです。Hosting版は `b4e6cd0e9d9aed21`。詳細は `docs/production-sync.md` と `docs/refactor-rollout.md` を参照してください。元の作業フォルダーは旧ソースと他タスクの未公開変更を含むため、その `dist` や配置コマンドをそのまま本番へ使用しないでください。作業開始時に保存版と現行配信を再照合します。GitHubへの保存を新たな本番公開と扱わないでください。
-
-## お知らせの共通実装・COCOとの連携
-
-お知らせの改修は `/Users/itokazuyasushi/gpt-COCO/packages/announcements/src` の共通実装を変更し、両システムへ同じ固定パッケージを反映します。この元フォルダーの旧お知らせ実装へ独立した修正を追加しないでください。
-
-共通化候補は実装・検証の段階であり、公開済みと見なさないでください。作業開始時は引き続き最新の公開記録と配信を照合し、元フォルダーの他タスク変更を保護します。`node scripts/coco-announcements.mjs check` で共通版を検査し、同ランチャーの `sync` と `verify-pair` で最新公開ソースから両候補を生成・検証します。手順は `/Users/itokazuyasushi/gpt-COCO/docs/announcement-migration.md` を参照してください。
+## お知らせの共通実装
+お知らせの変更はCOCOの packages/announcements/src を修正し、announcements:sync と announcements:verify-pair で両候補を検証します。接続部分に独立した画面・業務仕様を追加せず、単独の公開で完了扱いにしないでください。
