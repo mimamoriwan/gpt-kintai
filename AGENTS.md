@@ -13,3 +13,8 @@
 
 ## お知らせの共通実装
 お知らせの変更はCOCOの packages/announcements/src を修正し、announcements:sync と announcements:verify-pair で両候補を検証します。接続部分に独立した画面・業務仕様を追加せず、単独の公開で完了扱いにしないでください。
+
+
+## 現在の公開基点（2026年10月22日）
+
+現在はHosting `9d9d988170b86ff8` の公開版を基点とします。`docs/production-current.md` を確認し、配信との一致を照合してください。お知らせ共通版1.0.0は2026年10月20日に公開済みです。古い候補・旧GitHub mainから共通機能を巻き戻さないでください。共通部品の正本と両側の固定パッケージを維持します。

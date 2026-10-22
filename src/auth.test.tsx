@@ -25,6 +25,7 @@ vi.mock("firebase/auth", () => ({
 vi.mock("firebase/firestore", () => ({ onSnapshot: firebaseMocks.onSnapshot, doc: firebaseMocks.doc }));
 vi.mock("./firebase", () => ({ auth: firebaseMocks.auth, db: firebaseMocks.db }));
 vi.mock("./services/api", () => ({ completeInitialPasswordChange: firebaseMocks.completeInitialPasswordChange }));
+vi.mock("./services/announcementPush", () => ({ disableAnnouncementPush: async () => undefined }));
 
 interface ProfileSubscription {
   uid: string;

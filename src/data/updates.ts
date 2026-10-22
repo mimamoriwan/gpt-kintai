@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-10-22-weekly-todo-completed",
+    updatedAt: "2026-10-22T09:49:53+09:00",
+    kind: "improvement",
+    content: {
+      ja: {
+        title: "今週のTo Doの完了項目を折りたたみ表示",
+        areas: ["今週のTo Do"],
+        changes: ["進捗100％の業務を、業務テーマと完了マークを表示するアコーディオンに変更しました。テーマを押すと目標・進捗・実績を確認できます。", "共有一覧と自分の入力欄に対応し、完了した予定を残したまま表示をコンパクトにしました。詳細を開いて編集でき、進捗を100％未満に戻すと通常表示になります。"],
+        benefits: ["完了済みの記録を保ちながら、取り組み中の業務を確認しやすくなります。"]
+      },
+      "zh-CN": {
+        title: "折叠显示本周待办中的已完成事项",
+        areas: ["本周待办"],
+        changes: ["进度达到100％的业务改为折叠显示业务主题和完成标记。点击主题即可查看目标、进度和实绩。", "共享列表和自己的输入栏均支持折叠，保留已完成计划并精简显示。展开后可继续编辑，将进度调至100％以下时恢复普通显示。"],
+        benefits: ["保留已完成事项的记录，更方便地查看正在进行的业务。"]
+      }
+    }
+  },
+  {
     id: "2026-10-20-announcement-shared",
     updatedAt: "2026-10-20T04:22:58+09:00",
     kind: "feature",

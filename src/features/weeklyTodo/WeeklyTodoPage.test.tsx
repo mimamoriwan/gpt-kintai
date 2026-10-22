@@ -214,7 +214,9 @@ describe("add updated work to today's report", () => {
   it("offers another addition after an already added task changes again", async () => {
     api.getWeeklyTodoWorkspace.mockResolvedValue(saved(50, true)); show(); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" }));
     expect(screen.getByRole("button", { name: "本日の日報に追加済み" })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("進捗率（％）"), { target: { value: "100" } }); expect(screen.getByRole("button", { name: "本日の日報に追加" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("進捗率（％）"), { target: { value: "100" } });
+    fireEvent.click(document.querySelector(".todo-item-editor.todo-completed > summary")!);
+    expect(screen.getByRole("button", { name: "本日の日報に追加" })).toBeEnabled();
   });
   it("hides report actions for presidents, withdrawals and another week", async () => {
     api.getWeeklyTodoWorkspace.mockResolvedValue(saved(50)); const view = show(president); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" })); expect(screen.queryByRole("button", { name: "本日の日報に追加" })).not.toBeInTheDocument();
@@ -230,5 +232,102 @@ describe("add updated work to today's report", () => {
     state.locale = "zh-CN"; api.getWeeklyTodoWorkspace.mockResolvedValue(saved(50)); show();
     fireEvent.click(within(await screen.findByRole("group", { name: "切换显示" })).getByRole("button", { name: "填写我的计划" }));
     expect(await screen.findByRole("button", { name: "添加到今日日报" })).toBeEnabled();
+  });
+});
+
+describe("completed weekly To Do items", () => {
+  const completed = () => item({ progress: 100, memo: "初稿を完成して共有しました。" });
+  const completedPanel = () => document.querySelector<HTMLDetailsElement>("#todo-selected-member > article > .todo-snapshot > details.todo-completed")!;
+  const editorPanel = () => document.querySelector<HTMLDetailsElement>(".todo-item-editor.todo-completed")!;
+
+  it("collapses completed shared work, keeps ongoing work visible and toggles without changing data", async () => {
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ weeks: [shared(snapshot([completed(), item({ id: "ongoing", title: "次の資料", progress: 99 })]))] }));
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: /担当者A/ }));
+    const panel = completedPanel(); const summary = panel.querySelector("summary")!;
+    expect(summary).toHaveTextContent("資料を作成完了"); expect(panel).not.toHaveAttribute("open");
+    expect(within(panel).getByText("初稿を完成して共有しました。")).not.toBeVisible();
+    expect(screen.getByRole("heading", { name: "次の資料" })).toBeVisible();
+    fireEvent.click(summary);
+    expect(panel).toHaveAttribute("open"); expect(within(panel).getByText("初稿を完成して共有しました。")).toBeVisible(); expect(within(panel).getByText("100％")).toBeVisible();
+    fireEvent.click(summary); expect(panel).not.toHaveAttribute("open");
+    expect(api.saveWeeklyTodoDraft).not.toHaveBeenCalled(); expect(api.shareWeeklyTodo).not.toHaveBeenCalled();
+  });
+
+  it("keeps completed editor items and their data when saving and sharing", async () => {
+    const task = completed();
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [task], version: 1 }, weeks: [shared(snapshot([task]))] }));
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" }));
+    expect(editorPanel()).not.toHaveAttribute("open");
+    fireEvent.click(editorPanel().querySelector("summary")!);
+    expect(screen.getByLabelText("実績・残ったこと")).toBeVisible(); expect(screen.getByLabelText("進捗率（％）")).toHaveValue(100);
+    fireEvent.click(screen.getByRole("button", { name: "下書き保存" }));
+    await waitFor(() => expect(api.saveWeeklyTodoDraft).toHaveBeenCalledWith(expect.objectContaining({ items: [task] })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "変更を共有" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "変更を共有" }));
+    await waitFor(() => expect(api.shareWeeklyTodo).toHaveBeenCalledWith(expect.objectContaining({ items: [task] })));
+    expect(task.withdrawn).toBe(false);
+  });
+
+  it("collapses at 100 percent, preserves local edits and restores the editor below 100", async () => {
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [item({ progress: 90, memo: "編集中の実績" })], version: 1 } }));
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" }));
+    fireEvent.change(screen.getByLabelText("金曜日までの到達目標"), { target: { value: "更新した到達目標" } });
+    fireEvent.change(screen.getByLabelText("進捗率（％）"), { target: { value: "100" } });
+    expect(editorPanel()).not.toHaveAttribute("open"); expect(screen.getByLabelText("実績・残ったこと")).not.toBeVisible();
+    fireEvent.click(editorPanel().querySelector("summary")!);
+    expect(screen.getByLabelText("金曜日までの到達目標")).toHaveValue("更新した到達目標"); expect(screen.getByLabelText("実績・残ったこと")).toHaveValue("編集中の実績");
+    fireEvent.change(screen.getByLabelText("進捗率（％）"), { target: { value: "99" } });
+    expect(editorPanel()).toBeNull(); expect(screen.getByLabelText("進捗率（％）")).toBeVisible(); expect(screen.getByLabelText("実績・残ったこと")).toHaveValue("編集中の実績");
+    fireEvent.click(screen.getByRole("button", { name: "共有する" }));
+    await waitFor(() => expect(api.shareWeeklyTodo).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.objectContaining({ progress: 99, goal: "更新した到達目標", memo: "編集中の実績", withdrawn: false })] })));
+  });
+
+  it("keeps withdrawn work distinct even if its progress is 100 percent", async () => {
+    const task = { ...completed(), withdrawn: true };
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ weeks: [shared(snapshot([task]))], ownDraft: { items: [task], version: 1 } }));
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: /担当者A/ }));
+    expect(completedPanel()).toBeNull(); expect(screen.getByRole("heading", { name: /資料を作成.*取り下げ/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "自分の入力" })); expect(editorPanel()).toBeNull(); expect(screen.getByLabelText("進捗率（％）")).toBeVisible();
+  });
+
+  it("opens each completed task independently and retains the open state during refresh", async () => {
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ weeks: [shared(snapshot([completed(), item({ id: "second", title: "確認を完了", progress: 100 })]))] }));
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: /担当者A/ }));
+    const panels = document.querySelectorAll<HTMLDetailsElement>("#todo-selected-member > article > .todo-snapshot > details.todo-completed");
+    fireEvent.click(panels[0].querySelector("summary")!); expect(panels[0]).toHaveAttribute("open"); expect(panels[1]).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "再読み込み" })); await waitFor(() => expect(api.getWeeklyTodoWorkspace).toHaveBeenCalledTimes(2));
+    expect(completedPanel()).toHaveAttribute("open"); expect(panels[1]).not.toHaveAttribute("open");
+  });
+
+  it("retains initial goals, reviews and history as expandable completed records", async () => {
+    const content = snapshot([completed()]);
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ weeks: [{ ...shared(content), initial: content, review: content, reviewRevision: 1 }] }));
+    api.getWeeklyTodoHistory.mockResolvedValue({ history: [{ kind: "share", snapshot: content }], cursor: null });
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: /担当者A/ }));
+    for (const label of ["最初に共有した目標", "共有した振り返り", "予定・進捗の変更履歴"]) fireEvent.click(screen.getByText(label, { selector: "summary" }));
+    await waitFor(() => expect(api.getWeeklyTodoHistory).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.querySelectorAll(".todo-shared-item.todo-completed")).toHaveLength(4));
+    for (const panel of document.querySelectorAll(".todo-shared-item.todo-completed")) {
+      expect(panel).not.toHaveAttribute("open"); fireEvent.click(panel.querySelector("summary")!); expect(within(panel as HTMLElement).getByText("初稿を完成して共有しました。")).toBeVisible();
+    }
+  });
+
+  it("uses the translated task theme in the summary and retains expanded details when showing the original", async () => {
+    const content = snapshot([completed()]);
+    content.items[0] = { ...content.items[0], sourceLocale: "zh-CN", memoLocale: "zh-CN", title: "整理资料", goal: "完成初稿", memo: "已完成" };
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ weeks: [shared(content)] }));
+    api.translateWeeklyTodoContent.mockResolvedValue({ contentVersion: content.contentVersion, targetLocale: "ja", fields: { "item-a:title": "資料の整理", "item-a:goal": "初稿の完成", "item-a:memo": "整理を完了しました。" } });
+    show(); await ready(); fireEvent.click(screen.getByRole("button", { name: /担当者A/ }));
+    await waitFor(() => expect(completedPanel().querySelector("summary")).toHaveTextContent("資料の整理完了"));
+    fireEvent.click(completedPanel().querySelector("summary")!); expect(within(completedPanel()).getByText("整理を完了しました。")).toBeVisible();
+    fireEvent.click(screen.getAllByRole("button", { name: "原文を表示" })[0]); expect(completedPanel().querySelector("summary")).toHaveTextContent("整理资料完了"); expect(completedPanel()).toHaveAttribute("open");
+  });
+
+  it("shows the completed badge and expandable editor in Chinese", async () => {
+    state.locale = "zh-CN";
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [completed()], version: 1 } }));
+    show(); fireEvent.click(within(await screen.findByRole("group", { name: "切换显示" })).getByRole("button", { name: "填写我的计划" }));
+    expect(editorPanel().querySelector("summary")).toHaveTextContent("已完成"); expect(editorPanel()).not.toHaveAttribute("open");
+    fireEvent.click(editorPanel().querySelector("summary")!); expect(screen.getByLabelText("进度（％）")).toBeVisible(); expect(screen.getByLabelText("实绩与未完成事项")).toHaveValue("初稿を完成して共有しました。");
   });
 });

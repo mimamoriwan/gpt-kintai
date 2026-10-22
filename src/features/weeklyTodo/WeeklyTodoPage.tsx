@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCheck, ClipboardList, FilePlus2, Plus, RefreshCw, Save, Send } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, CheckCheck, CircleCheck, ChevronDown, ClipboardList, FilePlus2, Plus, RefreshCw, Save, Send } from "lucide-react";
 import { useI18n } from "../../i18n";
 import type { Locale, UserProfile } from "../../types";
 import { addDays, mondayOf } from "./calendar";
@@ -178,7 +178,7 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
         {conflict && <div className="todo-conflict" role="alert"><strong>{c("最新の下書きと入力内容を比較してください", "请比较最新草稿与当前输入")}</strong><ul>{workspace.ownDraft?.items.map(item => <li key={item.id}>{item.title || c("業務名未入力", "业务名称未填写")}：{item.goal} / {item.progress}％ / {item.memo}</li>)}</ul><button type="button" onClick={() => { setVersion(workspace.ownDraft?.version || 0); setConflict(false); setError(""); }}>{c("比較したので、この入力を保持して編集を続ける", "已比较，保留当前输入并继续编辑")}</button></div>}
         <fieldset disabled={busy || conflict} className="todo-fields">
           {items.length === 0 && <p className="todo-empty">{c("「業務を追加」から今週の予定を入力してください。", "请点击“添加业务”填写本周计划。")}</p>}
-          {items.map((item, index) => <article key={item.id} className={`todo-item-editor${item.withdrawn ? " withdrawn" : ""}`}>
+          {items.map((item, index) => <TodoItemPanel key={item.id} item={item} title={item.title} className="todo-item-editor">
             <div className="todo-item-top"><strong>{c("業務", "业务")} {index + 1}</strong>{item.carriedFrom && <small>{c("前週から引き継ぎ", "从上周结转")}</small>}{reportAction(item)}<button type="button" className="todo-text-button" onClick={() => {
               if (own?.shared.items.some(old => old.id === item.id)) update(item.id, { withdrawn: !item.withdrawn });
               else { setItems(rows => rows.filter(row => row.id !== item.id)); markDirty(true); }
@@ -188,7 +188,7 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
             <div className="todo-progress-input"><label>{c("進捗率（％）", "进度（％）")}<input type="number" min={0} max={100} step={1} value={item.progress} onChange={event => update(item.id, { progress: Math.max(0, Math.min(100, Math.round(Number(event.target.value)))) })} /></label><progress max={100} value={item.progress} aria-label={c("進捗率", "进度")} /></div>
             <label>{c("実績・残ったこと", "实绩与未完成事项")}<textarea rows={3} maxLength={4000} value={item.memo} onChange={event => update(item.id, { memo: event.target.value, memoLocale: locale })} /></label>
             {item.withdrawn && <p>{c("この項目は取り下げとして共有されます。理由を実績欄に記入してください。", "此项将作为撤回共享，请在实绩栏填写原因。")}</p>}
-          </article>)}
+          </TodoItemPanel>)}
           {(workspace.carryover.length > 0) && <details className="todo-carry"><summary>{c("前週の未完了項目から選んで追加", "选择上周未完成事项并添加")}</summary>{workspace.carryover.map(item => {
             const included = items.some(row => sourceKey(row) === sourceKey(item));
             return <label className="todo-check" key={item.id}><input type="checkbox" disabled={included} checked={included || selectedCarry.includes(item.id)} onChange={event => setSelectedCarry(rows => event.target.checked ? [...rows, item.id] : rows.filter(id => id !== item.id))} /><span>{item.title}（{item.progress}％）{included && c("・追加済み", "・已添加")}</span></label>;
@@ -210,6 +210,19 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
       </div>
     </>}
   </main>;
+}
+
+function TodoItemPanel({ item, title, className, children }: { item: TodoItem; title: string; className: string; children: ReactNode }) {
+  const { locale } = useI18n(); const c = copy(locale);
+  if (item.progress !== 100 || item.withdrawn) return <article className={`${className}${item.withdrawn ? " withdrawn" : ""}`}>{children}</article>;
+  return <details className={`${className} todo-completed`}>
+    <summary>
+      <span className="todo-completed-title">{title || item.goal || c("業務名未入力", "业务名称未填写")}</span>
+      <span className="todo-completed-badge"><CircleCheck size={17} aria-hidden="true" />{c("完了", "已完成")}</span>
+      <ChevronDown className="todo-completed-chevron" size={18} aria-hidden="true" />
+    </summary>
+    <div className="todo-completed-content">{children}</div>
+  </details>;
 }
 
 function SharedWeek({ row, name, userId, week }: { row?: TodoWeek; name: string; userId: string; week: string }) {
@@ -245,7 +258,7 @@ function SnapshotView({ snapshot, userId, week }: { snapshot: TodoSnapshot; user
   const text = (item: TodoItem, field: "title" | "goal" | "memo") => fields?.[`${item.id}:${field}`] ?? item[field];
   return <div className="todo-snapshot">
     {needsTranslation && <div className="todo-translation-tools">{translation ? <button type="button" onClick={() => setOriginal(value => !value)}>{original ? c("翻訳を表示", "显示译文") : c("原文を表示", "显示原文")}</button> : error ? <><small>{c("翻訳できませんでした・原文を表示", "翻译失败・显示原文")}</small><button type="button" onClick={() => { cache.delete(key); setAttempt(value => value + 1); }}>{c("翻訳を再試行", "重试翻译")}</button></> : <small>{c("翻訳中・原文を表示", "翻译中・显示原文")}</small>}</div>}
-    {snapshot.items.map(item => <div key={item.id} className={`todo-shared-item${item.withdrawn ? " withdrawn" : ""}`}><h4>{text(item, "title")}{item.withdrawn && <span className="todo-status">{c("取り下げ", "已撤回")}</span>}</h4><p><strong>{c("金曜までの目標", "周五前目标")}</strong>{text(item, "goal")}</p><div className="todo-progress"><progress value={item.progress} max={100} aria-label={`${item.title} ${c("進捗率", "进度")}`} /><b>{item.progress}％</b></div><p><strong>{c("実績・残ったこと", "实绩与未完成事项")}</strong>{text(item, "memo") || c("実績はまだ入力されていません。", "尚未填写实绩。")}</p></div>)}
+    {snapshot.items.map(item => <TodoItemPanel key={item.id} item={item} title={text(item, "title")} className="todo-shared-item"><h4>{text(item, "title")}{item.withdrawn && <span className="todo-status">{c("取り下げ", "已撤回")}</span>}</h4><p><strong>{c("金曜までの目標", "周五前目标")}</strong>{text(item, "goal")}</p><div className="todo-progress"><progress value={item.progress} max={100} aria-label={`${item.title} ${c("進捗率", "进度")}`} /><b>{item.progress}％</b></div><p><strong>{c("実績・残ったこと", "实绩与未完成事项")}</strong>{text(item, "memo") || c("実績はまだ入力されていません。", "尚未填写实绩。")}</p></TodoItemPanel>)}
   </div>;
 }
 function HistoryView({ week, userId, revision }: { week: string; userId: string; revision: number }) {

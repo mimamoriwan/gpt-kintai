@@ -5,6 +5,17 @@
 @media(max-width:600px){.todo-item-top .todo-report-button{flex-basis:100%;margin-left:0}}
 
 /* One person's plan at a time, with actions reachable at any scroll position. */
+.weekly-todo-page details.todo-completed{display:block;margin:0;padding:0;background:#f8fcfa;border-color:#cfe5d9}
+.todo-completed>summary{display:flex;align-items:center;gap:10px;min-height:58px;box-sizing:border-box;padding:14px 16px;list-style:none;border-radius:12px;color:#334155}
+.todo-completed>summary::-webkit-details-marker{display:none}
+.todo-completed>summary:hover{background:#eff8f2}
+.todo-completed-title{min-width:0;overflow-wrap:anywhere;font-size:1rem;line-height:1.65}
+.todo-completed-badge{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;border-radius:20px;padding:4px 9px;background:#e5f5eb;color:#166534;font-size:.75rem;font-weight:700;white-space:nowrap}
+.todo-completed-chevron{margin-left:auto;flex-shrink:0;color:#64748b}
+.todo-completed[open]>summary .todo-completed-chevron{transform:rotate(180deg)}
+.todo-completed-content{border-top:1px solid #dcebe2;padding:16px;background:#fff;border-radius:0 0 12px 12px}
+.todo-item-editor>.todo-completed-content{display:grid;gap:14px;padding:18px;background:#fafbff}
+@media(max-width:600px){.todo-completed>summary{gap:7px;padding:12px}.todo-completed-title{font-size:.9rem}.todo-completed-badge{padding:3px 7px}.todo-completed-content,.todo-item-editor>.todo-completed-content{padding:14px}}
 .weekly-todo-page{padding-bottom:240px}
 .weekly-todo-page [hidden]{display:none!important}
 .todo-view-switch{display:flex;gap:6px;padding:5px;border:1px solid #e2e8f0;border-radius:14px;background:#eef2f8}
