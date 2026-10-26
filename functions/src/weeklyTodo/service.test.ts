@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
 import { createWeeklyTodoService } from "./service.js";
 import { digest, documentId, scopeOf, weekDates, type Row, type TodoItem } from "./domain.js";
+import { createWeeklyTodoCarryover, currentTodoWeek } from "./carryover.js";
 
 class Database {
   rows = new Map<string, Row>(); queue: Promise<unknown> = Promise.resolve();
@@ -11,7 +12,7 @@ class Database {
   runTransaction(callback: (tx: any) => Promise<any>) {
     const operation = this.queue.then(async () => {
       const changes: [string, Row][] = [];
-      const result = await callback({ get: async (ref: any) => { if (changes.length) throw Error("Read after write"); return this.snapshot(ref.path); }, set: (ref: any, row: Row) => changes.push([ref.path, row]), create: (ref: any, row: Row) => { if (this.rows.has(ref.path)) throw Error("Already exists"); changes.push([ref.path, row]); } });
+      const result = await callback({ get: async (ref: any) => { if (changes.length) throw Error("Read after write"); return ref.path ? this.snapshot(ref.path) : ref.get(); }, set: (ref: any, row: Row) => changes.push([ref.path, row]), create: (ref: any, row: Row) => { if (this.rows.has(ref.path)) throw Error("Already exists"); changes.push([ref.path, row]); } });
       for (const [path, row] of changes) this.rows.set(path, structuredClone(row)); return result;
     }); this.queue = operation.catch(() => undefined); return operation;
   }
@@ -136,6 +137,7 @@ describe("sharing, reflection and concurrency", () => {
   });
 });
 describe("selected carryover", () => {
+  beforeEach(() => { reportTime = Date.parse("2026-10-12T01:00:00Z"); });
   it.each(["owner", "president"])("offers only %s's previous unfinished active shared items", async uid => {
     await service.shareWeeklyTodo(auth(uid), input([item(), item({ id: "done", progress: 100 }), item({ id: "withdrawn", withdrawn: true })], 0, "2026-10-12"));
     const result = await service.getWeeklyTodoWorkspace(auth(uid), { weekStart }); expect(result.carryover.map(row => row.id)).toEqual(["task-a"]);
@@ -150,6 +152,127 @@ describe("selected carryover", () => {
     await service.shareWeeklyTodo(auth(), input([item()], 1, "2026-10-12"));
     const copied = item({ id: "copy", carriedFrom: { weekStart: "2026-10-12", itemId: "task-a" } }); await service.saveWeeklyTodoDraft(auth(), input([copied]));
     await expect(service.saveWeeklyTodoDraft(auth(), input([{ ...copied, carriedFrom: undefined }], 1))).rejects.toMatchObject({ code: "invalid-argument" });
+  });
+});
+describe("automatic weekly carryover", () => {
+  const rollover = () => createWeeklyTodoCarryover({ db: db as unknown as Firestore, getAccount: async uid => ({ disabled: disabled.has(uid) }), now: () => reportTime });
+  const previous = "2026-10-12";
+  it.each(["owner", "manager", "president"])("automatically carries %s's latest saved unfinished items without sharing or rewriting the previous week", async uid => {
+    await service.shareWeeklyTodo(auth(uid), input([item(), item({ id: "finished", progress: 100 }), item({ id: "cancelled", withdrawn: true })], 0, previous));
+    await service.saveWeeklyTodoDraft(auth(uid), input([item({ progress: 75, memo: "PRIVATE 実績", memoLocale: "zh-CN" }), item({ id: "finished", progress: 100 }), item({ id: "cancelled", withdrawn: true }), item({ id: "private", title: "PRIVATE draft-only" })], 1, previous));
+    const original = structuredClone(record(uid, previous));
+    const response = await service.getWeeklyTodoWorkspace(auth(uid), { weekStart });
+    expect(response.ownDraft.items).toHaveLength(2); expect(response.ownDraft.version).toBe(1);
+    expect(response.ownDraft.items[0]).toMatchObject({ progress: 75, memo: "PRIVATE 実績", memoLocale: "zh-CN", carriedFrom: { weekStart: previous, itemId: "task-a" } });
+    expect(record(uid).shared).toBeUndefined(); expect(record(uid, previous)).toEqual(original);
+    const other = await service.getWeeklyTodoWorkspace(auth(uid === "owner" ? "manager" : "owner"), { weekStart });
+    expect(JSON.stringify(other)).not.toContain("PRIVATE");
+    await service.shareWeeklyTodo(auth(uid), input(response.ownDraft.items, 1));
+    expect(record(uid).shared.items).toEqual(response.ownDraft.items);
+  });
+  it("honors privately completed, withdrawn, or deleted tasks and an explicitly empty draft", async () => {
+    await service.shareWeeklyTodo(auth(), input([item()], 0, previous));
+    await service.saveWeeklyTodoDraft(auth(), input([item({ progress: 100 })], 1, previous));
+    await rollover().ensure("owner"); expect(record()).toBeUndefined();
+    await service.saveWeeklyTodoDraft(auth(), input([item({ withdrawn: true })], 2, previous));
+    await rollover().ensure("owner"); expect(record()).toBeUndefined();
+    await service.saveWeeklyTodoDraft(auth("manager"), input([item()], 0, previous));
+    await service.saveWeeklyTodoDraft(auth("manager"), input([], 1, previous));
+    await rollover().ensure("manager"); expect(record("manager")).toBeUndefined();
+  });
+  it("merges with existing current plans and preserves their shared goals, review and history", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item({ title: "previous private" })], 0, previous));
+    await service.shareWeeklyTodoReview(auth(), input([item({ memo: "current review" })]));
+    const before = structuredClone(record());
+    await rollover().ensure("owner");
+    expect(record().draft.items).toHaveLength(2); expect(record().draft.items[0]).toEqual(before.draft.items[0]);
+    for (const key of ["shared", "initial", "review", "reviewRevision", "lastOperationId"]) expect(record()[key]).toEqual(before[key]);
+    expect((await service.getWeeklyTodoHistory(auth("president"), { userId: "owner", weekStart })).history).toHaveLength(1);
+  });
+  it("is idempotent under concurrent loads and retries, and rejects a stale writer", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item()], 0, previous));
+    await Promise.all([rollover().ensure("owner"), rollover().ensure("owner"), service.getWeeklyTodoWorkspace(auth(), { weekStart })]);
+    const after = structuredClone(record()); expect(after.version).toBe(1); expect(after.draft.items).toHaveLength(1);
+    await rollover().ensure("owner"); expect(record()).toEqual(after);
+    await expect(service.saveWeeklyTodoDraft(auth(), input([item()]))).rejects.toMatchObject({ code: "aborted" });
+    await service.saveWeeklyTodoDraft(auth(), input([], 1));
+    await rollover().ensure("owner"); expect(record().draft.items).toEqual([]);
+  });
+  it("recognizes an earlier manual carryover without adding it twice", async () => {
+    await service.shareWeeklyTodo(auth(), input([item()], 0, previous));
+    await service.saveWeeklyTodoDraft(auth(), input([item({ id: "manual", carriedFrom: { weekStart: previous, itemId: "task-a" } })]));
+    const before = structuredClone(record()); await rollover().ensure("owner"); expect(record()).toEqual(before);
+  });
+  it("can edit carried items after Firestore reorders map keys and keeps pending retries idempotent", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item()], 0, previous));
+    await rollover().ensure("owner");
+    const carried = record().draft.items[0]; carried.carriedFrom = { itemId: "task-a", weekStart: previous };
+    await service.shareWeeklyTodo(auth(), input([{ ...carried, progress: 50 }], record().version));
+    await rollover().ensure("owner"); expect(record().draft.items).toHaveLength(1);
+    await service.saveWeeklyTodoDraft(auth("manager"), input([item()], 0, previous));
+    await service.saveWeeklyTodoDraft(auth("manager"), input(Array.from({ length: 30 }, (_, i) => item({ id: `full-${i}` }))));
+    await rollover().ensure("manager");
+    record("manager").carryoverPending = [{ itemId: "task-a", weekStart: previous }];
+    const before = structuredClone(record("manager")); await rollover().ensure("manager"); expect(record("manager")).toEqual(before);
+  });
+  it("does not change past or future weeks and catches up after multiple weeks away", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item({ progress: 60 })], 0, "2026-09-28"));
+    const original = structuredClone([...db.rows]);
+    await rollover().ensure("owner", previous); await rollover().ensure("owner", "2026-10-26");
+    expect([...db.rows]).toEqual(original);
+    await rollover().ensure("owner");
+    expect(record().draft.items[0]).toMatchObject({ progress: 60, carriedFrom: { weekStart: "2026-09-28", itemId: "task-a" } });
+    reportTime = Date.parse("2026-10-25T15:00:00Z"); await rollover().ensure("owner");
+    expect(record("owner", "2026-10-26").draft.items[0].carriedFrom.weekStart).toBe(weekStart);
+  });
+  it("uses the JST Monday boundary including the end of the year", async () => {
+    expect(currentTodoWeek(Date.parse("2026-10-18T14:59:59.999Z"))).toBe(previous);
+    expect(currentTodoWeek(Date.parse("2026-10-18T15:00:00Z"))).toBe(weekStart);
+    await service.saveWeeklyTodoDraft(auth(), input([item()], 0, "2025-12-22"));
+    reportTime = Date.parse("2026-01-01T00:00:00Z"); await rollover().ensure("owner");
+    expect(record("owner", "2025-12-29").draft.items[0].carriedFrom.weekStart).toBe("2025-12-22");
+  });
+  it("queues overflow without losing work and adds it automatically when space is saved", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item({ progress: 80 })], 0, previous));
+    const full = Array.from({ length: 30 }, (_, index) => item({ id: `current-${index}` }));
+    await service.saveWeeklyTodoDraft(auth(), input(full)); await rollover().ensure("owner");
+    expect(record().draft.items).toEqual(full); expect(record().carryoverPending).toEqual([{ weekStart: previous, itemId: "task-a" }]);
+    const version = record().version; await rollover().ensure("owner"); expect(record().version).toBe(version);
+    await service.saveWeeklyTodoDraft(auth(), input(full.slice(1), version));
+    const response = await service.getWeeklyTodoWorkspace(auth(), { weekStart });
+    expect(response.carryoverPending).toEqual([]); expect(response.ownDraft.items).toHaveLength(30);
+    expect(response.ownDraft.items.at(-1)).toMatchObject({ progress: 80 });
+  });
+  it("rechecks queued sources for completion and carries pending work across another week", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item(), item({ id: "second" })], 0, previous));
+    const full = Array.from({ length: 30 }, (_, index) => item({ id: `full-${index}` }));
+    await service.saveWeeklyTodoDraft(auth(), input(full)); await rollover().ensure("owner");
+    await service.saveWeeklyTodoDraft(auth(), input([item({ progress: 100 }), item({ id: "second" })], 1, previous));
+    await rollover().ensure("owner"); expect(record().carryoverPending).toEqual([{ weekStart: previous, itemId: "second" }]);
+    await service.saveWeeklyTodoDraft(auth(), input(full.map(item => ({ ...item, progress: 100 })), record().version));
+    reportTime = Date.parse("2026-10-26T00:00:00Z"); await rollover().ensure("owner");
+    expect(record("owner", "2026-10-26").draft.items).toHaveLength(1);
+    expect(record("owner", "2026-10-26").draft.items[0].carriedFrom).toEqual({ weekStart: previous, itemId: "second" });
+  });
+  it("respects the UTF-8 content limit and keeps oversized additions pending", async () => {
+    const large = Array.from({ length: 10 }, (_, i) => item({ id: `large-${i}`, memo: "あ".repeat(3800) }));
+    await service.saveWeeklyTodoDraft(auth(), input([item({ memo: "い".repeat(3800) })], 0, previous));
+    await service.saveWeeklyTodoDraft(auth(), input(large)); await rollover().ensure("owner");
+    expect(record().draft.items).toHaveLength(10); expect(record().carryoverPending).toHaveLength(1);
+  });
+  it("runs for all eligible roles while keeping disabled, inactive and demo accounts separate", async () => {
+    for (const uid of ["owner", "manager", "president", "demo", "demo2"]) await service.saveWeeklyTodoDraft(auth(uid), input([item({ title: uid })], 0, previous));
+    disabled.add("manager"); db.rows.get("users/demo2")!.active = false;
+    await rollover().runAll();
+    for (const uid of ["owner", "president"]) expect(record(uid).draft.items[0].title).toBe(uid);
+    expect(record("manager")).toBeUndefined(); expect(record("demo2", weekStart, "demo:two")).toBeUndefined();
+    expect(record("demo", weekStart, "demo:one").draft.items[0].title).toBe("demo"); expect(record("demo")).toBeUndefined();
+  });
+  it("finishes other accounts before reporting a retryable scheduled-job failure", async () => {
+    for (const uid of ["owner", "president"]) await service.saveWeeklyTodoDraft(auth(uid), input([item()], 0, previous));
+    const job = createWeeklyTodoCarryover({ db: db as unknown as Firestore, now: () => reportTime, getAccount: async uid => { if (uid === "owner") throw Error("temporary failure"); return { disabled: false }; } });
+    await expect(job.runAll()).rejects.toThrow("1 account(s)"); expect(record("president").draft.items).toHaveLength(1);
+    await rollover().runAll(); expect(record().draft.items).toHaveLength(1); expect(record("president").version).toBe(1);
   });
 });
 describe("automatic translation", () => {

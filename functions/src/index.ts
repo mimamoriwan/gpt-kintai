@@ -16,7 +16,7 @@ import { resolveCompanyDay } from "./companyCalendar.js";
 import { MAX_DAILY_DRAFT_BYTES, MAX_DAILY_DRAFT_FILES, appendDailyDraftCache, assertDailyDraftAttachmentLimits, findDailyDraftCache, prepareDailyDraftSource, type DailyDraftCacheEntry, type DailyDraftFileSource } from "./dailyDraft.js";
 import { AUTOMATIC_REPORT_MAX_ATTEMPTS, automaticCreationMethod, dailyReportAutomationId, dailyReportDocumentId, eligibleForAutomaticReport, previousJstDate, reportIsSubmitted, type AutomaticReportTrigger } from "./dailyAutomation.js";
 import { completePasswordSetup, requireWorkAuth } from "./passwordChange.js";
-export { getWeeklyTodoWorkspace, getWeeklyTodoHistory, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, translateWeeklyTodoContent, addWeeklyTodoToDailyReport } from "./weeklyTodo/index.js";
+export { getWeeklyTodoWorkspace, getWeeklyTodoHistory, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, translateWeeklyTodoContent, addWeeklyTodoToDailyReport, automaticWeeklyTodoCarryover } from "./weeklyTodo/index.js";
 import { acknowledgeDailyReportReplies } from "./reportReplies.js";
 export { registerAnnouncementPushDevice, unregisterAnnouncementPushDevice, testAnnouncementPushDevice, notifyNewAnnouncement } from "./announcementPushEndpoints.js";
 export { getBusinessWorkspace, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent } from "./business/index.js";

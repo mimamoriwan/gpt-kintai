@@ -13,6 +13,7 @@ export interface TodoWorkspace {
   weekStart: string; weekEnd: string; targetDate: string; fetchedAt: number;
   members: { uid: string; displayName: string; role: Role }[]; weeks: TodoWeek[];
   ownDraft: { items: TodoItem[]; version: number } | null; carryover: TodoItem[];
+  carryoverPending?: { weekStart: string; itemId: string }[];
   reportLink?: { reportDate: string; items: { itemId: string; added: boolean }[] } | null;
 }
 export interface TodoMutation { weekStart: string; expectedVersion: number; operationId: string; items: TodoItem[] }

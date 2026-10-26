@@ -11,7 +11,6 @@ type TranslationCache = Map<string, Promise<TodoTranslation>>;
 const TranslationContext = createContext<TranslationCache>(new Map());
 const copy = (locale: Locale) => (ja: string, zh: string) => locale === "ja" ? ja : zh;
 const dateTime = (at: number, locale: Locale) => new Intl.DateTimeFormat(locale === "ja" ? "ja-JP" : "zh-CN", { timeZone: "Asia/Tokyo", dateStyle: "short", timeStyle: "short" }).format(at);
-const sourceKey = (item: TodoItem) => item.carriedFrom ? `${item.carriedFrom.weekStart}:${item.carriedFrom.itemId}` : "";
 const newItem = (locale: Locale): TodoItem => ({ id: crypto.randomUUID(), title: "", goal: "", progress: 0, memo: "", sourceLocale: locale, memoLocale: locale, withdrawn: false });
 const reportContent = (item: TodoItem) => JSON.stringify([item.title.trim(), item.goal.trim(), item.progress, item.memo.trim()]);
 
@@ -26,7 +25,6 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
   const [items, setItems] = useState<TodoItem[]>([]); const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
   const [error, setError] = useState(""); const [feedback, setFeedback] = useState(""); const [conflict, setConflict] = useState(false);
-  const [selectedCarry, setSelectedCarry] = useState<string[]>([]);
   const [addedReportDate, setAddedReportDate] = useState("");
   const [view, setView] = useState<"shared" | "editor">("shared");
   const [selectedMember, setSelectedMember] = useState("");
@@ -90,7 +88,7 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
   }, []);
   function move(next: string) {
     if (busyRef.current || (dirtyRef.current && !window.confirm(c("未保存の入力があります。破棄して週を切り替えますか？", "有未保存的输入。要放弃并切换周吗？")))) return;
-    markDirty(false); setWorkspace(undefined); setItems([]); setSelectedCarry([]); setConflict(false); setError(""); setFeedback(""); setAddedReportDate(""); setLoading(true); setWeek(next);
+    markDirty(false); setWorkspace(undefined); setItems([]); setConflict(false); setError(""); setFeedback(""); setAddedReportDate(""); setLoading(true); setWeek(next);
   }
   function update(id: string, patch: Partial<TodoItem>) { setItems(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row)); markDirty(true); setFeedback(""); }
   async function save(kind: "draft" | "share" | "review") {
@@ -147,12 +145,6 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
     const added = action?.added && !changed;
     return <button type="button" className={`todo-report-button${added ? " added" : ""}`} disabled={busy || conflict || added} onClick={() => void addToReport(item)}><FilePlus2 size={16} />{added ? c("本日の日報に追加済み", "已添加到今日日报") : c("本日の日報に追加", "添加到今日日报")}</button>;
   }
-  function carry() {
-    const existing = new Set(items.map(sourceKey));
-    const additions = (workspace?.carryover || []).filter(item => selectedCarry.includes(item.id) && !existing.has(sourceKey(item))).map(item => ({ ...item, id: crypto.randomUUID(), progress: 0, memo: "", memoLocale: locale, withdrawn: false }));
-    if (items.length + additions.length > 30) { setError(c("項目は30件までです。", "最多可添加30项。")); return; }
-    setItems(rows => [...rows, ...additions]); setSelectedCarry([]); markDirty(true);
-  }
   const own = workspace?.weeks.find(row => row.userId === profile.uid);
   return <main className="page weekly-todo-page">
     <header className="todo-heading"><div><span className="eyebrow">WEEKLY TO DO</span><h1>{c("今週のTo Do", "本周待办")}</h1><p>{c("月曜に予定を共有し、金曜までの目標と進み具合を確認します。", "周一共享计划，确认周五前的目标与进度。")}</p></div><ClipboardList size={34} aria-hidden="true" /></header>
@@ -160,6 +152,8 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
     {error && !workspace && <p className="todo-error" role="alert">{error}</p>}
     {loading && <p role="status">{c("週間予定を読み込み中…", "正在加载周计划…")}</p>}
     {workspace && <>
+      <p className="todo-member-hint">{c("未完了の項目は毎週月曜に自分の下書きへ自動で引き継ぎます。進捗・実績はそのまま残ります。今週の目標を確認し、共有してください。", "未完成事项会在每周一自动结转到自己的草稿，保留进度和实绩。请确认本周目标后共享。")}</p>
+      {!!workspace.carryoverPending?.length && <p role="status" className="todo-conflict">{c(`未完了の${workspace.carryoverPending.length}件が引き継ぎ待ちです。30件・文字量の上限があるため、今週の下書きを整理して保存すると自動で追加します。`, `${workspace.carryoverPending.length}项未完成事项正在等待结转。由于有30项及文本量限制，整理并保存本周草稿后会自动添加。`)}</p>}
       <div className="todo-view-switch" role="group" aria-label={c("表示の切り替え", "切换显示")}>
         <button type="button" aria-pressed={view === "shared"} aria-controls="todo-shared-panel" onClick={() => setView("shared")}>{c("みんなの予定", "大家的计划")}</button>
         <button type="button" aria-pressed={view === "editor"} aria-controls="todo-editor-panel" onClick={() => setView("editor")}>{c("自分の入力", "填写我的计划")}{dirty && <span className="todo-draft-indicator">{c("未保存", "未保存")}</span>}</button>
@@ -179,7 +173,7 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
         <fieldset disabled={busy || conflict} className="todo-fields">
           {items.length === 0 && <p className="todo-empty">{c("「業務を追加」から今週の予定を入力してください。", "请点击“添加业务”填写本周计划。")}</p>}
           {items.map((item, index) => <TodoItemPanel key={item.id} item={item} title={item.title} className="todo-item-editor">
-            <div className="todo-item-top"><strong>{c("業務", "业务")} {index + 1}</strong>{item.carriedFrom && <small>{c("前週から引き継ぎ", "从上周结转")}</small>}{reportAction(item)}<button type="button" className="todo-text-button" onClick={() => {
+            <div className="todo-item-top"><strong>{c("業務", "业务")} {index + 1}</strong>{item.carriedFrom && <small>{c(`${item.carriedFrom.weekStart}の週から引き継ぎ`, `从${item.carriedFrom.weekStart}所在周结转`)}</small>}{reportAction(item)}<button type="button" className="todo-text-button" onClick={() => {
               if (own?.shared.items.some(old => old.id === item.id)) update(item.id, { withdrawn: !item.withdrawn });
               else { setItems(rows => rows.filter(row => row.id !== item.id)); markDirty(true); }
             }}>{own?.shared.items.some(old => old.id === item.id) ? item.withdrawn ? c("取り下げを戻す", "恢复") : c("取り下げる", "撤回") : c("削除", "删除")}</button></div>
@@ -189,10 +183,6 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
             <label>{c("実績・残ったこと", "实绩与未完成事项")}<textarea rows={3} maxLength={4000} value={item.memo} onChange={event => update(item.id, { memo: event.target.value, memoLocale: locale })} /></label>
             {item.withdrawn && <p>{c("この項目は取り下げとして共有されます。理由を実績欄に記入してください。", "此项将作为撤回共享，请在实绩栏填写原因。")}</p>}
           </TodoItemPanel>)}
-          {(workspace.carryover.length > 0) && <details className="todo-carry"><summary>{c("前週の未完了項目から選んで追加", "选择上周未完成事项并添加")}</summary>{workspace.carryover.map(item => {
-            const included = items.some(row => sourceKey(row) === sourceKey(item));
-            return <label className="todo-check" key={item.id}><input type="checkbox" disabled={included} checked={included || selectedCarry.includes(item.id)} onChange={event => setSelectedCarry(rows => event.target.checked ? [...rows, item.id] : rows.filter(id => id !== item.id))} /><span>{item.title}（{item.progress}％）{included && c("・追加済み", "・已添加")}</span></label>;
-          })}<button type="button" disabled={!selectedCarry.length} onClick={carry}>{c("選んだ項目を下書きへ追加", "将所选事项添加到草稿")}</button><p>{c("引き継いだ目標を今週に合わせて見直してください。", "请根据本周安排调整结转目标。")}</p></details>}
         </fieldset>
         {error && <p className="todo-error" role="alert">{error}</p>}{feedback && <p className="todo-feedback" role="status">{feedback}</p>}{addedReportDate && onOpenReport && <button type="button" disabled={busy || dirty || conflict} onClick={() => onOpenReport(addedReportDate)}>{c(`${addedReportDate}の日報を開く`, `打开${addedReportDate}的日报`)}</button>}
         <div className="todo-save-actions"><button type="button" className="todo-review-button" disabled={busy || conflict || !items.length} onClick={() => void save("review")}><CheckCheck size={17} />{c("今週の振り返りを共有", "共享本周回顾")}</button></div>

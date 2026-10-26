@@ -34,6 +34,7 @@ export function scopeOf(profile: Row): string {
   return `demo:${profile.demoDatasetId}`;
 }
 export const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export const carryoverKey = (origin: TodoItem["carriedFrom"]) => digest(origin ? { weekStart: origin.weekStart, itemId: origin.itemId } : null);
 export const documentId = (scope: string, uid: string, week: string) => digest([scope, uid, week]);
 export function snapshot(items: TodoItem[], revision: number, at: number): Snapshot {
   return { items, revision, at, contentVersion: digest(items) };
@@ -43,6 +44,6 @@ export function validateItems(items: TodoItem[], kind: "draft" | "share" | "revi
   if (Buffer.byteLength(JSON.stringify(items), "utf8") > 120000) throw new HttpsError("invalid-argument", "入力が長すぎます。項目を短くしてください。");
   if (kind !== "draft" && (!items.length || items.some(item => !item.title || !item.goal))) throw new HttpsError("invalid-argument", "業務と金曜日までの目標を入力してください。");
   if (kind === "review" && items.some(item => !item.memo)) throw new HttpsError("invalid-argument", "各項目の実績・残ったことを入力してください。");
-  const sources = items.filter(item => item.carriedFrom).map(item => digest(item.carriedFrom));
+  const sources = items.filter(item => item.carriedFrom).map(item => carryoverKey(item.carriedFrom));
   if (new Set(sources).size !== sources.length) throw new HttpsError("invalid-argument", "同じ項目を重複して引き継ぐことはできません。");
 }

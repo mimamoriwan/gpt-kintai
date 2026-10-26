@@ -3,9 +3,11 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { onCall, type CallableRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import OpenAI from "openai";
 import { asHttpsError } from "../business/domain.js";
 import { createWeeklyTodoService } from "./service.js";
+import { createWeeklyTodoCarryover } from "./carryover.js";
 
 const key = defineSecret("OPENAI_API_KEY");
 const options = { region: "asia-northeast1", maxInstances: 5, memory: "256MiB" as const, enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true", invoker: "public" as const };
@@ -27,3 +29,9 @@ export const shareWeeklyTodo = onCall(options, handler("shareWeeklyTodo"));
 export const shareWeeklyTodoReview = onCall(options, handler("shareWeeklyTodoReview"));
 export const addWeeklyTodoToDailyReport = onCall(options, handler("addWeeklyTodoToDailyReport"));
 export const translateWeeklyTodoContent = onCall({ ...options, secrets: [key], timeoutSeconds: 120 }, handler("translateWeeklyTodoContent"));
+export const automaticWeeklyTodoCarryover = onSchedule({
+  schedule: "0 0 * * 1", timeZone: "Asia/Tokyo", region: "asia-northeast1",
+  timeoutSeconds: 540, memory: "256MiB", maxInstances: 1, retryCount: 5, minBackoffSeconds: 60
+}, async () => {
+  await createWeeklyTodoCarryover({ db: getFirestore(), getAccount: uid => getAuth().getUser(uid) }).runAll();
+});

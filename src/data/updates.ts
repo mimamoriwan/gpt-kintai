@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-10-26-weekly-todo-auto-carryover",
+    updatedAt: "2026-10-26T09:52:47+09:00",
+    kind: "improvement",
+    content: {
+      ja: {
+        title: "未完了のTo Doを翌週へ自動引き継ぎ",
+        areas: ["今週のTo Do"],
+        changes: ["日本時間の月曜0時に、保存済みの未完了項目を翌週の本人用下書きへ自動で引き継ぐ処理を追加しました。画面を開いた際にも未処理分を補い、完了・取り下げ済みは除外します。", "目標・進捗・実績を保ち、入力済みの予定や過去の記録を上書きせず、重複追加を防ぎます。30件・文字量の上限で入りきらない項目は待機し、空きができると自動で追加します。共有は本人の操作で行います。"],
+        benefits: ["手動で項目を選び直さずに、前の週から残った業務を今週の入力欄で確認し、目標を見直して共有できます。"]
+      },
+      "zh-CN": {
+        title: "自动将未完成待办结转到下周",
+        areas: ["本周待办"],
+        changes: ["新增自动结转：每周一日本时间零点，将已保存的未完成事项结转到下周的个人草稿。打开页面时也会补充未处理事项，排除已完成和已撤回事项。", "保留目标、进度和实绩，不覆盖已填写计划及历史记录，并防止重复添加。因30项或文本量限制无法添加的事项会等待，有空间后自动添加。共享仍由本人操作。"],
+        benefits: ["无需手动重新选择事项，即可在本周输入栏确认之前未完成的业务，调整目标后共享。"]
+      }
+    }
+  },
+  {
     id: "2026-10-22-weekly-todo-completed",
     updatedAt: "2026-10-22T09:49:53+09:00",
     kind: "improvement",

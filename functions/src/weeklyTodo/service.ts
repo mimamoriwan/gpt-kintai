@@ -2,14 +2,16 @@ import type { Firestore } from "firebase-admin/firestore";
 import { Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { requireWorkAuth, type PasswordAuthContext } from "../passwordChange.js";
-import { digest, documentId, historyInput, mutationInput, scopeOf, snapshot, translationInput, validateItems, weekDates, weekInput, type Row, type Snapshot, type TodoItem } from "./domain.js";
+import { carryoverKey, digest, documentId, historyInput, mutationInput, scopeOf, snapshot, translationInput, validateItems, weekDates, weekInput, type Row, type Snapshot, type TodoItem } from "./domain.js";
 import { reportDateJst, reportInput, reportItemHash, reportLogs, reportable } from "./reportLink.js";
+import { createWeeklyTodoCarryover } from "./carryover.js";
 
 type Dependencies = {
   db: Firestore; getAccount: (uid: string) => Promise<{ disabled: boolean }>; now?: () => number;
   translate: (fields: Record<string, string>, source: string, target: string, uid: string) => Promise<Record<string, string>>;
 };
 export function createWeeklyTodoService({ db, getAccount, translate, now = Date.now }: Dependencies) {
+  const carryover = createWeeklyTodoCarryover({ db, getAccount, now });
   async function authorize(auth: PasswordAuthContext | undefined) {
     const verified = await requireWorkAuth(auth, async uid => (await db.doc(`users/${uid}`).get()).data());
     const account = await getAccount(verified.uid);
@@ -28,6 +30,7 @@ export function createWeeklyTodoService({ db, getAccount, translate, now = Date.
   }
   async function getWeeklyTodoWorkspace(auth: PasswordAuthContext | undefined, data: unknown) {
     const { weekStart } = weekInput.parse(data); const dates = weekDates(weekStart); const ctx = await authorize(auth);
+    await carryover.ensure(ctx.uid, weekStart);
     const users = await db.collection("users").where("active", "==", true).get();
     const members = users.docs.map(doc => ({ ...doc.data(), uid: doc.id } as Row)).filter(row => {
       try { return ["employee", "employee_manager", "president_viewer"].includes(row.role) && scopeOf(row) === ctx.scopeId; } catch { return false; }
@@ -48,8 +51,8 @@ export function createWeeklyTodoService({ db, getAccount, translate, now = Date.
     const current = await authorize(auth);
     if (current.scopeId !== ctx.scopeId) throw new HttpsError("permission-denied", "利用環境が変更されました。");
     return { ...dates, members: members.map(profile => ({ uid: profile.uid, displayName: profile.displayName || "", role: profile.role })), weeks,
-      ownDraft: { items: own?.draft?.items || own?.shared?.items || [], version: own?.version || 0 }, reportLink,
-      carryover: (previousRow?.shared?.items || []).filter((item: TodoItem) => !item.withdrawn && item.progress < 100 && !(own?.carriedSources || []).includes(digest({ weekStart: previousStart, itemId: item.id }))).map((item: TodoItem) => ({ ...item, carriedFrom: { weekStart: previousStart, itemId: item.id } })), fetchedAt: now() };
+      ownDraft: { items: own?.draft?.items || own?.shared?.items || [], version: own?.version || 0 }, reportLink, carryoverPending: own?.carryoverPending || [],
+      carryover: (previousRow?.shared?.items || []).filter((item: TodoItem) => !item.withdrawn && item.progress < 100 && !(own?.carriedSources || []).includes(carryoverKey({ weekStart: previousStart, itemId: item.id }))).map((item: TodoItem) => ({ ...item, carriedFrom: { weekStart: previousStart, itemId: item.id } })), fetchedAt: now() };
   }
   async function mutate(auth: PasswordAuthContext | undefined, data: unknown, kind: "draft" | "share" | "review") {
     const input = mutationInput.parse(data); weekDates(input.weekStart); validateItems(input.items, kind); const ctx = await authorize(auth);
@@ -67,7 +70,7 @@ export function createWeeklyTodoService({ db, getAccount, translate, now = Date.
       const reportableItems = input.items.filter(item => before?.reportableItems?.includes(item.id) || (known.has(item.id) && reportItemHash(known.get(item.id)!) !== reportItemHash(item))).map(item => item.id);
       for (const item of input.items) {
         const existing = known.get(item.id);
-        if (existing && digest(existing.carriedFrom || null) !== digest(item.carriedFrom || null)) throw new HttpsError("invalid-argument", "引き継ぎ元は変更できません。");
+        if (existing && carryoverKey(existing.carriedFrom) !== carryoverKey(item.carriedFrom)) throw new HttpsError("invalid-argument", "引き継ぎ元は変更できません。");
         if (!item.carriedFrom || existing) continue;
         const previous = new Date(`${input.weekStart}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 7);
         if (item.carriedFrom.weekStart !== previous.toISOString().slice(0, 10)) throw new HttpsError("invalid-argument", "前週の項目を選んでください。");
@@ -76,7 +79,7 @@ export function createWeeklyTodoService({ db, getAccount, translate, now = Date.
       }
       const used = new Set<string>(before?.carriedSources || []);
       for (const item of input.items) if (item.carriedFrom && !known.has(item.id)) {
-        const key = digest(item.carriedFrom);
+        const key = carryoverKey(item.carriedFrom);
         if (used.has(key)) throw new HttpsError("invalid-argument", "この項目は取り込み済みです。");
         used.add(key);
       }

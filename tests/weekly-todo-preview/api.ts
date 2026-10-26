@@ -27,6 +27,13 @@ if (new URLSearchParams(location.search).has("many")) seed("a", week, Array.from
 seed("b", week, [task("b1", "整理候选资料", "周五前完成三份资料的整理并共享概要", 60, "已整理两份资料，剩余一份正在确认。", "zh-CN")]);
 seed("a", addDays(week, -7), [task("prior-a", "参考情報を整理", "比較に使う参考情報を一覧にまとめる", 70, "残りの情報を確認する")]);
 seed("p", addDays(week, -7), [task("prior-p", "共有資料の内容を確認", "資料を確認し、確認事項を整理する", 50, "確認事項を整理中")]);
+// Static fixtures for inspecting the automatically populated private draft.
+for (const user of ["a", "p"]) {
+  const current = rows.get(`${user}:${week}`)!;
+  const previous = addDays(week, -7);
+  current.draft.push(...rows.get(`${user}:${previous}`)!.draft.map(item => ({ ...clone(item), id: `carry-${item.id}`, carriedFrom: { weekStart: previous, itemId: item.id } })));
+  current.version++;
+}
 export async function getWeeklyTodoWorkspace(weekStart: string): Promise<TodoWorkspace> {
   const own = rows.get(`${uid}:${weekStart}`); const previous = addDays(weekStart, -7);
   return clone({ weekStart, weekEnd: addDays(weekStart, 6), targetDate: addDays(weekStart, 4), fetchedAt: Date.now(), members: profiles.map(({ uid, displayName, role }) => ({ uid, displayName, role })), weeks: [...rows.values()].filter(value => value.history.length > 0 && value.row.weekStart === weekStart).map(value => value.row), ownDraft: { items: own?.draft || [], version: own?.version || 0 }, reportLink: uid === "p" ? null : { reportDate: today(), items: weekStart === mondayOf() ? (own?.draft || []).filter(item => !item.withdrawn && (item.progress > 0 || item.memo.trim() || own?.reportableItems?.includes(item.id))).map(item => ({ itemId: item.id, added: previewLogs.has(logKey(weekStart, item)) })) : [] }, carryover: (rows.get(`${uid}:${previous}`)?.row.shared.items || []).filter(item => !item.withdrawn && item.progress < 100).map(item => ({ ...item, carriedFrom: { weekStart: previous, itemId: item.id } })) });

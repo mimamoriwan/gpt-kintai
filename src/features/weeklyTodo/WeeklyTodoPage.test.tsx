@@ -123,11 +123,18 @@ describe("weekly To Do workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "比較したので、この入力を保持して編集を続ける" })); expect(screen.getByLabelText("取り組む業務")).toHaveValue("比較資料");
     api.saveWeeklyTodoDraft.mockResolvedValue({ version: 3 }); fireEvent.click(screen.getByRole("button", { name: "下書き保存" })); await waitFor(() => expect(api.saveWeeklyTodoDraft).toHaveBeenCalledTimes(3)); expect(api.saveWeeklyTodoDraft.mock.calls[2][0].expectedVersion).toBe(2);
   });
-  it.each(writers)("copies $role's selected unfinished tasks with reset progress and no repeated addition", async user => {
+  it.each(writers)("shows $role's automatically carried draft with its saved progress and memo, without requiring a selection", async user => {
     const origin = item({ progress: 75, memo: "前週の実績", carriedFrom: { weekStart: "2026-10-12", itemId: "item-a" } });
-    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ carryover: [origin] })); show(user); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" }));
-    fireEvent.click(screen.getByLabelText(/資料を作成（75％）/)); fireEvent.click(screen.getByRole("button", { name: "選んだ項目を下書きへ追加" }));
-    expect(screen.getByLabelText("取り組む業務")).toHaveValue("資料を作成"); expect(screen.getByLabelText("進捗率（％）")).toHaveValue(0); expect(screen.getByLabelText("実績・残ったこと")).toHaveValue(""); expect(screen.getByRole("checkbox")).toBeDisabled();
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [origin], version: 1 } })); show(user); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" }));
+    expect(screen.getByLabelText("取り組む業務")).toHaveValue("資料を作成"); expect(screen.getByLabelText("進捗率（％）")).toHaveValue(75); expect(screen.getByLabelText("実績・残ったこと")).toHaveValue("前週の実績");
+    expect(screen.getByText("2026-10-12の週から引き継ぎ")).toBeInTheDocument(); expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(api.saveWeeklyTodoDraft).not.toHaveBeenCalled(); expect(api.shareWeeklyTodo).not.toHaveBeenCalled();
+  });
+  it.each(["ja", "zh-CN"] as const)("explains pending automatic carryover in %s without exposing old task text", async locale => {
+    state.locale = locale;
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ carryoverPending: [{ weekStart: "2026-10-12", itemId: "pending" }] }));
+    show();
+    expect(await screen.findByText(locale === "ja" ? /未完了の1件が引き継ぎ待ち/ : /1项未完成事项正在等待结转/)).toBeInTheDocument();
   });
   it("withdraws a shared task instead of deleting it", async () => {
     api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [item()], version: 1 }, weeks: [shared()] })); show(); await ready(); fireEvent.click(screen.getByRole("button", { name: "自分の入力" }));
