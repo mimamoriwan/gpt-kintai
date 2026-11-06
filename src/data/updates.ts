@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-06-business-workspace-stage2",
+    updatedAt: "2026-11-06T18:48:25.455+09:00",
+    kind: "improvement",
+    content: {
+      ja: {
+        title: "会社の取り組みと今週の仕事を一つの画面に",
+        areas: ["会社の取り組み", "今週やること"],
+        changes: ["「会社の取り組み」の中で「全体計画」と「今週やること」を切り替えられます。", "工程表の横棒にカーソルを合わせるかタップすると、達成項目の内容と完了件数を確認できます。", "全体計画に、担当者ごとの共有済みの作業と元の取り組みへのリンクを表示します。"],
+        benefits: ["全体の予定を見ながら、今週は誰が何を進めているかを確認し、該当する作業や取り組みを開けます。"]
+      },
+      "zh-CN": {
+        title: "在同一页面查看公司重点工作与本周任务",
+        areas: ["公司重点工作", "本周任务"],
+        changes: ["可在「公司重点工作」内切换「整体计划」和「本周任务」。", "将光标移到计划图横条上或点击横条，可查看达成项的内容和完成数量。", "整体计划会显示各负责人的已共享任务，并提供原工作的链接。"],
+        benefits: ["查看整体安排时即可了解各负责人本周推进的任务，并打开相关任务或原工作。"]
+      }
+    }
+  },
+  {
     id: "2026-11-06-business-weekly-todo-link",
     updatedAt: "2026-11-06T14:33:50.654+09:00",
     kind: "feature",

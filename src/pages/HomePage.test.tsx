@@ -38,7 +38,8 @@ describe("Home app launcher", () => {
     state.role = "employee_manager";
     const p = { ...props(), canManageAccounts: true };
     show(p);
-    for (const [label, section] of [["記録", "records"], ["商品候補", "products"], ["業務サイクル", "workflow"], ["今週のTo Do", "weeklyTodo"], ["会社の取り組み", "business"], ["管理", "admin"], ["ログイン管理", "accounts"], ["使い方", "help"], ["更新情報", "updates"], ["設定", "settings"]]) {
+    expect(screen.queryByRole("button", { name: "今週のTo Do" })).not.toBeInTheDocument();
+    for (const [label, section] of [["記録", "records"], ["商品候補", "products"], ["業務サイクル", "workflow"], ["会社の取り組み", "business"], ["管理", "admin"], ["ログイン管理", "accounts"], ["使い方", "help"], ["更新情報", "updates"], ["設定", "settings"]]) {
       fireEvent.click(screen.getByRole("button", { name: label }));
       expect(p.onSection).toHaveBeenLastCalledWith(section);
     }
@@ -63,6 +64,7 @@ describe("Home app launcher", () => {
     show();
     expect(screen.queryByRole("button", { name: "ログイン管理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "会社の取り組み" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "今週のTo Do" })).toBeInTheDocument();
   });
   it("opens the oldest own provisional report rather than a different employee's report", () => {
     const p = { ...props(), onConfirmReport: vi.fn(), reports: [

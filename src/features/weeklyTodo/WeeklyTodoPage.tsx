@@ -17,12 +17,12 @@ const linkedKey = (item: TodoItem) => item.businessLink ? `${item.businessLink.i
 const newItem = (locale: Locale): TodoItem => ({ id: crypto.randomUUID(), title: "", goal: "", progress: 0, memo: "", sourceLocale: locale, memoLocale: locale, withdrawn: false });
 const reportContent = (item: TodoItem) => JSON.stringify([item.title.trim(), item.goal.trim(), item.progress, item.memo.trim()]);
 
-type PageProps = { profile: UserProfile; onOpenReport?: (date: string) => void; initialItemId?: string; onOpenInitiative?: (id: string) => void };
+type PageProps = { profile: UserProfile; onOpenReport?: (date: string) => void; initialItemId?: string; initialMemberId?: string; onOpenInitiative?: (id: string) => void; embedded?: boolean };
 export function WeeklyTodoPage(props: PageProps) {
   const cache = useMemo<TranslationCache>(() => new Map(), [props.profile.uid]);
   return <TranslationContext.Provider value={cache}><WeeklyTodoContent key={props.profile.uid} {...props} /></TranslationContext.Provider>;
 }
-function WeeklyTodoContent({ profile, onOpenReport, initialItemId, onOpenInitiative }: PageProps) {
+function WeeklyTodoContent({ profile, onOpenReport, initialItemId, initialMemberId, onOpenInitiative, embedded }: PageProps) {
   const { locale } = useI18n(); const c = copy(locale);
   const [week, setWeek] = useState(mondayOf); const [workspace, setWorkspace] = useState<TodoWorkspace>();
   const [items, setItems] = useState<TodoItem[]>([]); const [version, setVersion] = useState(0);
@@ -31,7 +31,7 @@ function WeeklyTodoContent({ profile, onOpenReport, initialItemId, onOpenInitiat
   const [selectedCarry, setSelectedCarry] = useState<string[]>([]);
   const [addedReportDate, setAddedReportDate] = useState("");
   const [view, setView] = useState<"shared" | "editor">(initialItemId ? "editor" : "shared");
-  const [selectedMember, setSelectedMember] = useState("");
+  const [selectedMember, setSelectedMember] = useState(initialMemberId || "");
   const [focusItem, setFocusItem] = useState(initialItemId || "");
   const [reportedInitiative, setReportedInitiative] = useState("");
   const reportAttempt = useRef<{ key: string; id: string }>(undefined);
@@ -85,7 +85,7 @@ function WeeklyTodoContent({ profile, onOpenReport, initialItemId, onOpenInitiat
     const warn = (event: BeforeUnloadEvent) => warnBeforeLeaving(event, dirtyRef.current, busyRef.current);
     const guard = (event: MouseEvent) => {
       if (!(event.target instanceof Element) || event.target.closest(".weekly-todo-page")) return;
-      const button = event.target.closest(".sidebar nav button:not(.active), .bottom-nav button:not(.active), .account-switch-button");
+      const button = event.target.closest('.sidebar nav button:not(.active), .bottom-nav button:not(.active), .account-switch-button, [data-business-work-tab][aria-pressed="false"]');
       if (!button) return;
       if (busyRef.current || (dirtyRef.current && !window.confirm(copy(localeRef.current)("未保存の入力があります。破棄して移動しますか？", "有未保存的输入。要放弃并离开吗？")))) { event.preventDefault(); event.stopPropagation(); }
     };
@@ -188,7 +188,7 @@ function WeeklyTodoContent({ profile, onOpenReport, initialItemId, onOpenInitiat
   }
   const own = workspace?.weeks.find(row => row.userId === profile.uid);
   return <main className="page weekly-todo-page">
-    <header className="todo-heading"><div><span className="eyebrow">WEEKLY TO DO</span><h1>{c("今週のTo Do", "本周待办")}</h1><p>{c("月曜に予定を共有し、金曜までの目標と進み具合を確認します。", "周一共享计划，确认周五前的目标与进度。")}</p></div><ClipboardList size={34} aria-hidden="true" /></header>
+    <header className="todo-heading"><div>{!embedded && <><span className="eyebrow">WEEKLY TO DO</span><h1>{c("今週のTo Do", "本周待办")}</h1></>}<p>{c("月曜に予定を共有し、金曜までの目標と進み具合を確認します。", "周一共享计划，确认周五前的目标与进度。")}</p></div><ClipboardList size={34} aria-hidden="true" /></header>
     <div className="todo-week-nav"><button type="button" disabled={busy} onClick={() => move(addDays(week, -7))}><ArrowLeft size={17} />{c("前週", "上周")}</button><div><strong>{week} 〜 {addDays(week, 6)}</strong><span>{c("目標日：", "目标日：")}{addDays(week, 4)}{c("（金）", "（周五）")}</span></div><button type="button" disabled={busy} onClick={() => move(addDays(week, 7))}>{c("翌週", "下周")}<ArrowRight size={17} /></button><button type="button" disabled={busy} onClick={() => move(mondayOf())}>{c("今週", "本周")}</button><button type="button" disabled={busy} onClick={() => { setError(""); void load(); }}><RefreshCw size={16} />{c("再読み込み", "刷新")}</button></div>
     {error && !workspace && <p className="todo-error" role="alert">{error}</p>}
     {loading && <p role="status">{c("週間予定を読み込み中…", "正在加载周计划…")}</p>}

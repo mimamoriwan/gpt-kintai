@@ -49,13 +49,16 @@ export function Shell({ section, onSection, instructions, users, notify, childre
     }
   }, [announcementDraft]);
   const canViewAdmin = profile?.role === "employee_manager" || profile?.role === "president_viewer";
+  const showingWeeklyTab = businessFeatureAvailable && section === "weeklyTodo";
+  const activeSection = showingWeeklyTab ? "business" : section;
+  const openSection = (next: NavSection) => { if (!showingWeeklyTab || next !== "business") onSection(next); };
   const items: { id: NavSection; label: string; icon: typeof Home; visible: boolean }[] = [
     { id: "home", label: t("home"), icon: Home, visible: true },
     { id: "report", label: t("dailyReport"), icon: ClipboardPenLine, visible: profile?.role !== "president_viewer" },
     { id: "records", label: t("records"), icon: BarChart3, visible: profile?.role !== "president_viewer" },
     { id: "products", label: t("products"), icon: PackageSearch, visible: true },
     { id: "workflow", label: t("workflow"), icon: CalendarRange, visible: true },
-    { id: "weeklyTodo", label: locale === "ja" ? "今週のTo Do" : "本周待办", icon: ClipboardPenLine, visible: true },
+    { id: "weeklyTodo", label: locale === "ja" ? "今週のTo Do" : "本周待办", icon: ClipboardPenLine, visible: !businessFeatureAvailable },
     { id: "business", label: locale === "ja" ? "会社の取り組み" : "公司重点工作", icon: CalendarRange, visible: businessFeatureAvailable },
     { id: "admin", label: t("admin"), icon: SlidersHorizontal, visible: canViewAdmin },
     { id: "meetingResume", label: locale === "ja" ? "会議レジュメ" : "会议简报", icon: BookOpenCheck, visible: canManageAccounts },
@@ -71,7 +74,7 @@ export function Shell({ section, onSection, instructions, users, notify, childre
           <Logo />
           <AppUpdateNotice placement="sidebar" />
           <nav>
-            {items.filter((item) => item.visible).map((item) => <button type="button" key={item.id} className={section === item.id ? "active" : ""} aria-current={section === item.id ? "page" : undefined} onClick={() => onSection(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}
+            {items.filter((item) => item.visible).map((item) => <button type="button" key={item.id} className={activeSection === item.id ? "active" : ""} aria-current={activeSection === item.id ? "page" : undefined} onClick={() => openSection(item.id)}><item.icon size={20} /><span>{item.label}</span></button>)}
           </nav>
           <InstructionShortcut instructions={instructions} onOpen={() => openInstructions()} />
           <div className="sidebar-user">
@@ -98,7 +101,7 @@ export function Shell({ section, onSection, instructions, users, notify, childre
         </div>
       </div>
       <nav className="bottom-nav" aria-label={locale === "ja" ? "画面メニュー" : "页面菜单"}>
-        {items.filter((item) => item.visible).map((item) => <button type="button" key={item.id} className={section === item.id ? "active" : ""} aria-current={section === item.id ? "page" : undefined} onClick={() => onSection(item.id)}><item.icon size={21} /><span>{item.label}</span></button>)}
+        {items.filter((item) => item.visible).map((item) => <button type="button" key={item.id} className={activeSection === item.id ? "active" : ""} aria-current={activeSection === item.id ? "page" : undefined} onClick={() => openSection(item.id)}><item.icon size={21} /><span>{item.label}</span></button>)}
       </nav>
       <InstructionReminder key={`reminder-${profile?.uid}`} instructions={instructions} onOpen={openInstructions} paused={instructionCenterOpen} />
       <InstructionCenter key={profile?.uid} instructions={notificationInstruction && !instructions.some(row => row.id === notificationInstruction.id) ? [...instructions, notificationInstruction] : instructions} users={users} open={instructionCenterOpen} onClose={() => setInstructionCenterOpen(false)} notify={notify} initialDraft={announcementDraft} selectedInstructionId={selectedInstructionId} />

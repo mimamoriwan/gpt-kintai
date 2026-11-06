@@ -1,0 +1,33 @@
+.business-workspace {
+  width: min(1560px, 100%);
+  min-width: 0;
+  margin: 0 auto;
+  padding: clamp(16px, 2.4vw, 36px) clamp(12px, 2vw, 30px) 20px;
+}
+.business-workspace-header h1 { margin: 0 0 4px; font-size: clamp(23px, 2.4vw, 32px); }
+.business-workspace-header p { margin: 0; color: var(--muted, #586579); font-size: 14px; }
+.business-workspace-tabs { display: flex; gap: 6px; margin: 18px 0 12px; border-bottom: 1px solid var(--line, #dce4ed); }
+.business-workspace-tabs button {
+  min-height: 44px;
+  padding: 8px clamp(12px, 2.2vw, 28px);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.business-workspace-tabs button[aria-pressed="true"] { background: #edf4ff; border-bottom-color: #155eef; color: #114aaf; }
+.business-workspace-tabs button:focus-visible { outline: 3px solid #77a9e7; outline-offset: 2px; }
+.business-workspace > .weekly-todo-page { padding-inline: 0; padding-top: 10px; }
+.business-workspace > .business-page { margin: 0; }
+
+@media (max-width: 700px) {
+  .business-workspace { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .business-workspace-tabs button { flex: 1; }
+}
+@media (prefers-color-scheme: dark) {
+  .business-workspace-tabs button[aria-pressed="true"] { background: #233b59; color: #c8deff; border-bottom-color: #8abbff; }
+}

@@ -75,7 +75,7 @@ export function HomePage({ onSection, onAnnouncements, canManageAccounts = false
     { id: "records", label: t("records"), icon: BarChart3, color: "indigo", visible: !president, open: () => onSection("records") },
     { id: "products", label: t("products"), icon: PackageSearch, color: "orange", visible: true, open: () => onSection("products") },
     { id: "workflow", label: t("workflow"), icon: RefreshCw, color: "cyan", visible: true, open: () => onSection("workflow") },
-    { id: "weeklyTodo", label: ja ? "今週のTo Do" : "本周待办", icon: ClipboardPenLine, color: "indigo", visible: true, open: () => onSection("weeklyTodo") },
+    { id: "weeklyTodo", label: ja ? "今週のTo Do" : "本周待办", icon: ClipboardPenLine, color: "indigo", visible: !businessFeatureAvailable, open: () => onSection("weeklyTodo") },
     { id: "business", label: ja ? "会社の取り組み" : "公司重点工作", icon: Flag, color: "violet", visible: businessFeatureAvailable, open: () => onSection("business") },
     { id: "admin", label: t("admin"), icon: SlidersHorizontal, color: "slate", visible: manager || president, open: () => onSection("admin"), status: manager && aiRuns >= MONTHLY_AI_GENERATION_ALERT_THRESHOLD ? (ja ? "AI利用状況を要確認" : "请检查AI使用情况") : undefined },
     { id: "accounts", label: ja ? "ログイン管理" : "登录管理", icon: UserRoundCog, color: "blue", visible: manager && canManageAccounts, open: () => onSection("accounts") },

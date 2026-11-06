@@ -12,6 +12,7 @@ import { AppCheckRecoveryNotice } from "./components/AppCheckRecoveryNotice";
 import { AppHeader } from "./components/AppHeader";
 import { BusinessFeatureEntry, useBusinessEntry } from "./components/BusinessFeatureEntry";
 import { businessFeatureAvailable } from "./features/business/api";
+import { BusinessWorkspaceNavigation } from "./features/business/BusinessWorkspaceNavigation";
 import { LoginPage } from "./pages/LoginPage";
 import { AuthRecoveryPage } from "./pages/AuthRecoveryPage";
 import { InitialPasswordChangePage } from "./pages/InitialPasswordChangePage";
@@ -88,7 +89,7 @@ export default function App() {
     return () => { active = false; };
   }, [canUseApp, profile?.uid, profile?.role, profile?.isDemo]);
   const [section, setSection] = useState<NavSection>("home");
-  const [weeklyTodoEntry, setWeeklyTodoEntry] = useState<{ uid: string; itemId: string }>();
+  const [weeklyTodoEntry, setWeeklyTodoEntry] = useState<{ uid: string; itemId?: string; memberId?: string }>();
   const [homeVisit, setHomeVisit] = useState(0);
   useEffect(() => {
     if ((section === "accounts" || section === "meetingResume") && !canManageAccounts) setSection("home");
@@ -200,8 +201,16 @@ export default function App() {
     navigate("weeklyTodo");
     setWeeklyTodoEntry({ uid: profile!.uid, itemId });
   }
+  function openWeeklyWork(memberId?: string) {
+    navigate("weeklyTodo");
+    if (memberId) setWeeklyTodoEntry({ uid: profile!.uid, memberId });
+  }
   function openReportDate(reportDate: string) { businessEntry.clearRoute(); setEditingReport(null); setInitialReportDate(reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openExistingReport(report: DailyReport) { businessEntry.clearRoute(); setEditingReport(report); setInitialReportDate(report.reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+
+  const weeklyEntry = weeklyTodoEntry?.uid === profile.uid ? weeklyTodoEntry : undefined;
+  const weeklyTodo = section === "weeklyTodo" && <WeeklyTodoPage key={profile.uid} profile={profile} onOpenReport={openReportDate} initialItemId={weeklyEntry?.itemId} initialMemberId={weeklyEntry?.memberId} onOpenInitiative={businessFeatureAvailable ? businessEntry.openInitiative : undefined} embedded={businessFeatureAvailable} />;
+  const business = section === "business" && businessFeatureAvailable && businessUid && <BusinessFeatureEntry key={profile.uid} profile={profile} onCreateAnnouncement={businessEntry.createAnnouncement} initialInitiativeId={businessEntry.initialInitiativeId} onOpenWeeklyTodo={openLinkedWeeklyTodo} onOpenWeeklyWork={openWeeklyWork} embedded />;
 
   return (
     <Shell key={`${user.uid}:${profile.uid}`} section={section} onSection={navigate} instructions={scopedPresidentInstructions} users={announcementRecipients} notify={notify} announcementDraft={businessEntry.announcementDraft} canManageAccounts={canManageAccounts} notificationInstructionId={pushRoute.instructionId} onNotificationHandled={pushRoute.clear}>
@@ -211,9 +220,10 @@ export default function App() {
       {section === "report" && <ReportPage reports={scopedReports} categories={categories} attendance={scopedAttendance} editing={editingReport} initialDate={initialReportDate} onDone={() => navigate("records")} notify={notify} />}
       {section === "records" && <RecordsPage onOpenReplies={setReplyReportId} attendance={scopedAttendance} reports={scopedReports} categories={categories} onEditReport={openExistingReport} notify={notify} />}
       {section === "products" && <ProductsPage products={scopedProducts} observations={scopedObservations} revisions={scopedProductRevisions} users={sortedUsers} notify={notify} />}
-      {section === "weeklyTodo" && <WeeklyTodoPage key={profile.uid} profile={profile} onOpenReport={openReportDate} initialItemId={weeklyTodoEntry?.uid === profile.uid ? weeklyTodoEntry.itemId : undefined} onOpenInitiative={businessFeatureAvailable ? businessEntry.openInitiative : undefined} />}
+      {businessFeatureAvailable && (section === "business" || section === "weeklyTodo")
+        ? <BusinessWorkspaceNavigation view={section} onView={navigate}>{business}{weeklyTodo}</BusinessWorkspaceNavigation>
+        : weeklyTodo}
       {section === "workflow" && <WorkflowPage users={sortedUsers} attendance={scopedAttendance} reports={scopedReports} dutyDefinitions={dutyDefinitions} employmentBases={employmentBases} sourceDocuments={sourceDocuments} weeklyPlans={scopedWeeklyPlans} weeklyReports={scopedWeeklyReports} weeklyMeetings={scopedWeeklyMeetings} nonWorkingReasons={scopedNonWorkingReasons} evidenceReferences={scopedEvidenceReferences} monthlyPackages={scopedMonthlyPackages} renewalChecklists={renewalChecklists} notify={notify} />}
-      {section === "business" && businessFeatureAvailable && businessUid && <BusinessFeatureEntry key={profile.uid} profile={profile} onCreateAnnouncement={businessEntry.createAnnouncement} initialInitiativeId={businessEntry.initialInitiativeId} onOpenWeeklyTodo={openLinkedWeeklyTodo} />}
       {section === "admin" && <AdminPage attendance={scopedAttendance} reports={scopedReports} automations={scopedDailyReportAutomations} users={sortedUsers} categories={categories} holidayOverrides={holidayOverrides} products={scopedProducts} productObservations={scopedObservations} notify={notify} />}
       {section === "help" && <HelpPage />}
       {section === "updates" && <UpdatesPage />}

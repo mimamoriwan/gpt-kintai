@@ -8,6 +8,7 @@ import { BusinessEntityHistory } from "./BusinessEntityHistory";
 import { BusinessDetailPanel } from "./BusinessDetailPanel";
 import { BusinessDetailDialog } from "./BusinessDetailDialog";
 import { BusinessOverview } from "./BusinessOverview";
+import { BusinessWeeklyAssignments } from "./BusinessWeeklyAssignments";
 import { InitiativeEditor, MembersEditor, ThemeEditor } from "./BusinessForms";
 import { businessCopy, dateLabel, safeBusinessLink, statuses, statusLabel } from "./presentation";
 import type { BusinessAnnouncementDraft, BusinessInitiative, BusinessTheme, BusinessWorkspace } from "./types";
@@ -15,10 +16,17 @@ import { BusinessTranslationProvider, TranslatedText } from "./useBusinessTransl
 import "./business.css";
 import "./overview.css";
 
-interface Props { profile: UserProfile; onCreateAnnouncement: (draft: BusinessAnnouncementDraft) => void; initialInitiativeId?: string; onOpenWeeklyTodo?: (itemId: string) => void }
+export interface BusinessPageProps {
+  profile: UserProfile;
+  onCreateAnnouncement: (draft: BusinessAnnouncementDraft) => void;
+  initialInitiativeId?: string;
+  onOpenWeeklyTodo?: (itemId: string) => void;
+  onOpenWeeklyWork?: (memberId?: string) => void;
+  embedded?: boolean;
+}
 type Editor = { kind: "theme"; theme?: BusinessTheme } | { kind: "initiative"; initiative?: BusinessInitiative; focusMilestones?: boolean } | { kind: "members" };
 
-export function BusinessPage(props: Props) {
+export function BusinessPage(props: BusinessPageProps) {
   const { locale } = useI18n();
   if (!businessFeatureAvailable || !props.profile.active) return <section className="business-page"><h1>{locale === "ja" ? "会社の取り組み" : "公司重点工作"}</h1><p>{locale === "ja" ? "この機能は現在利用できません。" : "此功能当前不可用。"}</p></section>;
   // Remount all account-scoped drafts, caches, requests and fetched content together.
@@ -26,7 +34,7 @@ export function BusinessPage(props: Props) {
 }
 export default BusinessPage;
 
-function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeId, onOpenWeeklyTodo }: Props) {
+function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeId, onOpenWeeklyTodo, onOpenWeeklyWork, embedded }: BusinessPageProps) {
   const { locale } = useI18n(); const c = businessCopy(locale);
   const [workspace, setWorkspace] = useState<BusinessWorkspace>();
   const [archiveCandidate, setArchiveCandidate] = useState<{ kind: "theme" | "initiative"; row: BusinessTheme | BusinessInitiative }>();
@@ -68,7 +76,7 @@ function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeI
     const guardNavigation = (event: MouseEvent) => {
       if (!dirtyRef.current || !(event.target instanceof Element)) return;
       const target = event.target.closest("button,a");
-      if (!target || target.closest(".business-page") || !target.matches(".sidebar nav button:not(.active), .bottom-nav button:not(.active), .account-switch-button")) return;
+      if (!target || target.closest(".business-page") || !target.matches('.sidebar nav button:not(.active), .bottom-nav button:not(.active), .account-switch-button, [data-business-work-tab][aria-pressed="false"]')) return;
       const label = localeRef.current === "ja" ? "未保存の入力があります。破棄して移動しますか？" : "有尚未保存的输入。要放弃并离开吗？";
       if (!window.confirm(label)) { event.preventDefault(); event.stopPropagation(); }
     };
@@ -115,7 +123,7 @@ function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeI
   }
   const formCommon = { onDirty: markDirty, refresh, onAccessError, onCancel: () => { if (leaveDraft()) setEditor(undefined); }, onSaved: (id?: string) => { markDirty(false); if (editor?.kind === "initiative" && id) setSelectedId(id); setEditor(undefined); setFeedback(c("原文を保存しました。翻訳は表示時に取得します。", "原文已保存，显示时会获取译文。")); void refresh(); } };
   return <section className="business-page" aria-label={c("会社の取り組み", "公司重点工作")}>
-    <header className="business-header"><div><p className="business-eyebrow">{c("会社の課題と目標", "公司的目标与任务")}</p><h1>{c("会社の取り組み", "公司重点工作")}</h1><p className="business-muted">{c("誰が、何に取り組んでいるか。予定と達成項目を一緒に確認できます。", "谁正在推进什么工作，一起查看计划与达成项。")}</p></div><div className="business-actions"><button type="button" disabled={loading} onClick={() => void refresh()}>{loading ? c("取得中…", "获取中…") : c("最新情報に更新", "刷新最新信息")}</button>{canManage && <button type="button" onClick={() => openEditor({ kind: "members" })}>{c("共有メンバー設定", "共享成员设置")}</button>}</div></header>
+    <header className="business-header"><div>{!embedded && <><p className="business-eyebrow">{c("会社の課題と目標", "公司的目标与任务")}</p><h1>{c("会社の取り組み", "公司重点工作")}</h1></>}<p className="business-muted">{c("誰が、何に取り組んでいるか。予定と達成項目を一緒に確認できます。", "谁正在推进什么工作，一起查看计划与达成项。")}</p></div><div className="business-actions"><button type="button" disabled={loading} onClick={() => void refresh()}>{loading ? c("取得中…", "获取中…") : c("最新情報に更新", "刷新最新信息")}</button>{canManage && <button type="button" onClick={() => openEditor({ kind: "members" })}>{c("共有メンバー設定", "共享成员设置")}</button>}</div></header>
     {error && <div className="business-error" role="alert">{error}{workspace && <p>{c("表示は前回取得時の内容です。", "当前显示的是上次获取的内容。")}</p>}</div>}
     {operationError && <p className="business-error" role="alert">{operationError}</p>}
     {feedback && <p className="business-success" role="status">{feedback}</p>}
@@ -125,9 +133,14 @@ function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeI
       {workspace.settings.enabled && <>
         <div className="business-toolbar"><div className="business-views" aria-label={c("表示方法", "显示方式")}><button type="button" aria-pressed={view === "timeline"} onClick={() => setView("timeline")}>{c("工程表", "计划图")}</button><button type="button" aria-pressed={view === "list"} onClick={() => setView("list")}>{c("一覧・近況", "列表与动态")}</button></div>{canManage && <div className="business-actions"><button type="button" onClick={() => { if (leaveDraft()) { setEditor(undefined); setManageThemes(v => !v); } }}>{c("テーマを管理", "管理主题")}</button><button type="button" className="business-primary" disabled={!themes.some(t => !t.archived)} onClick={() => openEditor({ kind: "initiative" })}>{c("取り組みを追加", "添加工作")}</button></div>}</div>
         <div className="business-filters"><label>{c("テーマで絞り込み", "按主题筛选")}<select value={themeFilter} onChange={e => setThemeFilter(e.target.value)}><option value="">{c("すべてのテーマ", "所有主题")}</option>{themes.map(t => <option value={t.id} key={t.id}>{t.name}</option>)}</select></label><label>{c("担当者で絞り込み", "按负责人筛选")}<select value={assigneeFilter} onChange={e => setAssigneeFilter(e.target.value)}><option value="">{c("すべての担当者", "所有负责人")}</option><option value="unassigned">{c("担当未定", "负责人待定")}</option>{workspace.members.map(m => <option key={m.uid} value={m.uid}>{m.displayName}</option>)}</select></label><label>{c("状態で絞り込み", "按状态筛选")}<select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="">{c("すべての状態", "所有状态")}</option>{statuses.map(status => <option key={status} value={status}>{statusLabel(status, locale)}</option>)}</select></label><label className="business-check"><input type="checkbox" checked={archive} onChange={e => setArchive(e.target.checked)} />{c("アーカイブを表示", "显示已归档")}</label></div>
+        {embedded && <div className="business-assignee-shortcuts" role="group" aria-label={c("担当者のクイック絞り込み", "快速按负责人筛选")}>
+          <button type="button" aria-pressed={!assigneeFilter} onClick={() => setAssigneeFilter("")}>{c("全員", "所有成员")}</button>
+          {workspace.members.filter(member => member.active).map(member => <button type="button" key={member.uid} aria-pressed={assigneeFilter === member.uid} onClick={() => setAssigneeFilter(member.uid)}>{member.displayName}</button>)}
+        </div>}
         {!themes.length && <div className="business-empty"><h2>{c("まず大きなテーマから始めましょう", "从大的主题开始")}</h2><p>{c("販売基盤、商品準備・販売、販促、資金調達、月次管理など、会社に必要なテーマを登録できます。", "可添加销售基础、商品准备与销售、营销推广、资金筹措、月度管理等主题。")}</p>{canManage && <button type="button" onClick={() => openEditor({ kind: "theme" })}>{c("テーマを追加", "添加主题")}</button>}</div>}
         {themes.length > 0 && rows.length === 0 && <p className="business-empty">{c("該当する取り組みはありません。", "没有符合条件的工作。")}</p>}
       </>}
+      <div className={onOpenWeeklyWork && workspace.settings.enabled ? "business-plan-grid with-assignments" : "business-plan-grid"}>
       <div className="business-workbench" data-view={view}>
         <div className="business-overview">
           {workspace.settings.enabled && rows.length > 0 && <BusinessOverview view={view} themes={themes} rows={rows} workspace={workspace} selectedId={selectedId} select={select} />}
@@ -138,6 +151,8 @@ function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeI
       {!editor && !manageThemes && selectedId && !selected && workspace.settings.enabled && <p className="business-notice">{c("指定された取り組みを取得できません。共有範囲と最新の一覧をご確認ください。", "无法获取指定工作，请确认共享范围和最新列表。")}</p>}
       {!editor && !manageThemes && !selected && rows.length > 0 && <p className="business-muted business-select-hint">{c("取り組み名を選ぶと、その場で詳細を確認できます。", "选择工作名称即可直接查看详情。")}</p>}
         </div>
+      </div>
+      {onOpenWeeklyWork && workspace.settings.enabled && <BusinessWeeklyAssignments workspace={workspace} assigneeId={assigneeFilter} openInitiative={select} openWeek={memberId => { if (leaveDraft()) onOpenWeeklyWork(memberId); }} />}
       </div>
       {!manageThemes && selected && (!editor || (editor.kind === "initiative" && editor.initiative)) && <BusinessDetailDialog editing={Boolean(editor)} archiveOpen={Boolean(archiveCandidate)} onClose={closeDetail}>
         {editor?.kind === "initiative" && editor.initiative && canManage ? <div className="business-editor-container"><fieldset className="business-form-fields" disabled={!workspace.settings.enabled}>{!workspace.settings.enabled && <p className="business-notice">{c("停止中のため保存できません。入力内容はこの画面に保持しています。", "此功能暂停中，无法保存。您的输入保留在此页面。")}</p>}<InitiativeEditor key={`initiative-${editor.initiative.id}`} {...formCommon} initiative={editor.initiative} latest={workspace.initiatives.find(r => r.id === editor.initiative?.id)} themes={themes} members={workspace.members} focusMilestones={editor.focusMilestones} /></fieldset></div> : <>

@@ -2,7 +2,7 @@ import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState, ty
 import { useI18n } from "../i18n";
 import { businessFeatureAvailable } from "../features/business/api";
 import type { BusinessAnnouncementDraft } from "../features/business/types";
-import type { UserProfile } from "../types";
+import type { BusinessPageProps } from "../features/business/BusinessPage";
 
 export function businessIdFromHash(hash: string): string | undefined {
   return /^#business\/([A-Za-z0-9_-]{1,128})$/.exec(hash)?.[1];
@@ -105,7 +105,7 @@ class BusinessBoundary extends Component<{ children: ReactNode; onRetry: () => v
 
 const loadBusinessPage = () => lazy(() => import("../features/business/BusinessPage"));
 
-export function BusinessFeatureEntry(props: { profile: UserProfile; onCreateAnnouncement: (draft: BusinessAnnouncementDraft) => void; initialInitiativeId?: string; onOpenWeeklyTodo?: (itemId: string) => void }) {
+export function BusinessFeatureEntry(props: BusinessPageProps) {
   const { locale } = useI18n();
   const [Page, setPage] = useState(loadBusinessPage);
   const [attempt, setAttempt] = useState(0);

@@ -126,13 +126,22 @@ afterEach(() => {
 
 describe("App Check recovery integration", () => {
   it("opens the daily report for the transferred date from weekly To Do", async () => {
-    await renderApp(); fireEvent.click(screen.getAllByRole("button", { name: "今週のTo Do" })[0]);
+    await renderApp(); fireEvent.click(screen.getAllByRole("button", { name: "会社の取り組み" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "今週やること" }));
     fireEvent.click(screen.getByRole("button", { name: "追加先の日報を開く" })); expect(screen.getByLabelText("追加先の日報日付")).toHaveTextContent("2026-10-19");
   });
-  it.each(["employee", "employee_manager", "president_viewer"] as Role[])("opens weekly To Do from both menus for %s", async role => {
+  it.each(["employee", "employee_manager", "president_viewer"] as Role[])("keeps one company workspace menu for %s", async role => {
     authState.profile.role = role; await renderApp();
-    const buttons = screen.getAllByRole("button", { name: "今週のTo Do" }); expect(buttons).toHaveLength(2);
-    fireEvent.click(buttons[0]); expect(screen.getByRole("heading", { name: "週間予定の内容" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "今週のTo Do" })).not.toBeInTheDocument();
+    const buttons = screen.getAllByRole("button", { name: "会社の取り組み" }); expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[0]);
+    expect(screen.getByRole("heading", { name: "会社の取り組み" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全体計画" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "今週やること" }));
+    expect(screen.getByRole("heading", { name: "週間予定の内容" })).toBeInTheDocument();
+    expect(buttons.every(button => button.getAttribute("aria-current") === "page")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "全体計画" }));
+    expect(screen.queryByRole("heading", { name: "週間予定の内容" })).not.toBeInTheDocument();
   });
   it("replaces raw App Check notification text with a persistent notice inside the app header", async () => {
     authState.recipientError = "AppCheck: Requests throttled due to previous 403 error. Attempts allowed again after 17h:02m:23s (appCheck/throttled).";

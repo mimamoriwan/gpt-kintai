@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Locale, UserProfile } from "../../types";
 import { WeeklyTodoPage } from "./WeeklyTodoPage";
+import { BusinessWorkspaceNavigation } from "../business/BusinessWorkspaceNavigation";
 import { mondayOf } from "./calendar";
 import { todayJst } from "../../lib/format";
 import type { TodoItem, TodoSnapshot, TodoWorkspace } from "./types";
@@ -198,6 +199,25 @@ describe("weekly To Do workspace", () => {
   it("warns before switching weeks with unsaved input", async () => {
     show(); await ready(); fill(); const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "翌週" })); expect(confirm).toHaveBeenCalled(); expect(screen.getByLabelText("取り組む業務")).toHaveValue("比較資料"); expect(api.getWeeklyTodoWorkspace).toHaveBeenCalledTimes(1);
+  });
+  it("opens the requested member and protects unsaved work when returning to the plan", async () => {
+    const onView = vi.fn();
+    render(<BusinessWorkspaceNavigation view="weeklyTodo" onView={onView}>
+      <WeeklyTodoPage profile={profile} embedded initialMemberId="other" />
+    </BusinessWorkspaceNavigation>);
+    await ready();
+    const picker = within(screen.getByRole("group", { name: "予定を見るメンバー" }));
+    expect(picker.getByRole("button", { name: /担当者B/ })).toHaveAttribute("aria-pressed", "true");
+    fill();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const plan = screen.getByRole("button", { name: "全体計画" });
+    fireEvent.click(plan);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onView).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("取り組む業務")).toHaveValue("比較資料");
+    confirm.mockReturnValue(true);
+    fireEvent.click(plan);
+    expect(onView).toHaveBeenCalledWith("business");
   });
 });
 

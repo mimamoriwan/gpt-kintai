@@ -1,12 +1,16 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserProfile } from "../../types";
+import { mondayOf } from "../weeklyTodo/calendar";
+import type { TodoItem, TodoWeek } from "../weeklyTodo/types";
 import type { BusinessWorkspace } from "./types";
 import { BusinessPage } from "./BusinessPage";
 
 const api = vi.hoisted(() => ({ getBusinessWorkspace: vi.fn(), getBusinessInitiativeDetail: vi.fn(), getBusinessHistory: vi.fn(), translateBusinessContent: vi.fn(), setBusinessArchived: vi.fn() }));
+const getWeeklyTodoWorkspace = vi.hoisted(() => vi.fn());
 vi.mock("../../i18n", () => ({ useI18n: () => ({ locale: "ja" }) }));
 vi.mock("./api", () => ({ ...api, businessFeatureAvailable: true, businessErrorCode: () => "unknown", businessErrorMessage: () => "通信を完了できませんでした。" }));
+vi.mock("../weeklyTodo/api", () => ({ getWeeklyTodoWorkspace, todoError: () => "通信を完了できませんでした。" }));
 const profile: UserProfile = { uid: "member", displayName: "担当者", email: "member@example.test", role: "employee", locale: "ja", active: true };
 function fixture(): BusinessWorkspace {
   const common = { sourceLocale: "ja" as const, referenceLinks: [], archived: false, version: 1, contentVersion: "v1", createdAt: 1, updatedAt: 2, updatedBy: profile.uid };
@@ -86,7 +90,7 @@ describe("company initiative overview", () => {
   it("keeps initiative creation order after updates arrive in a different response order", async () => {
     render(<BusinessPage profile={profile} onCreateAnnouncement={vi.fn()} />);
     const table = await screen.findByRole("table");
-    const names = () => within(table).getAllByRole("button").map(button => button.textContent);
+    const names = () => within(table).getAllByRole("button", { name: /^(最初の取り組み|次の取り組み)$/ }).map(button => button.textContent);
     expect(names()).toEqual(["最初の取り組み", "次の取り組み"]);
     const next = fixture();
     next.initiatives[0].updatedAt = 9000;
@@ -98,5 +102,67 @@ describe("company initiative overview", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "最新情報に更新" })).toBeEnabled());
     expect(names()).toEqual(["最初の取り組み", "次の取り組み"]);
     expect(within(table).getAllByRole("columnheader").slice(2).map(header => header.getAttribute("aria-label"))).toEqual(["2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"]);
+  });
+
+  it("previews active milestones on hover and opens full details from the schedule bar", async () => {
+    const workspace = fixture();
+    workspace.initiatives[1].milestones = [
+      { id: "done", name: "完了した条件", completed: true, archived: false, order: 0, updatedAt: 2, updatedBy: profile.uid },
+      { id: "pending", name: "残りの条件", completed: false, archived: false, order: 1, updatedAt: 2, updatedBy: profile.uid },
+      { id: "archived", name: "以前の条件", completed: false, archived: true, order: 2, updatedAt: 2, updatedBy: profile.uid }
+    ];
+    api.getBusinessWorkspace.mockResolvedValue(workspace);
+    render(<BusinessPage profile={profile} onCreateAnnouncement={vi.fn()} />);
+    const bar = await screen.findByRole("button", { name: "最初の取り組みの達成項目を確認" });
+    fireEvent(bar, Object.assign(new MouseEvent("pointerover", { bubbles: true }), { pointerType: "mouse" }));
+    const preview = screen.getByRole("region", { name: "最初の取り組みの達成項目" });
+    expect(preview).toHaveTextContent("1/2件完了");
+    expect(preview).toHaveTextContent("残り1件");
+    expect(preview).toHaveTextContent("残りの条件");
+    expect(preview).not.toHaveTextContent("以前の条件");
+    expect(api.getBusinessInitiativeDetail).not.toHaveBeenCalled();
+    fireEvent.click(bar);
+    const details = within(preview).getByRole("button", { name: "詳細を開く" });
+    expect(details).toHaveFocus();
+    fireEvent.keyDown(details, { key: "Escape" });
+    expect(bar).toHaveFocus();
+    expect(bar).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(bar);
+    fireEvent.click(screen.getByRole("button", { name: "詳細を開く" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(api.getBusinessInitiativeDetail).toHaveBeenCalledWith({ initiativeId: "work-a" });
+  });
+
+  it("shows only current shared work for company members and links to its initiative and owner", async () => {
+    const weekStart = mondayOf();
+    const item = (title: string, extra?: Partial<TodoItem>): TodoItem => ({
+      id: title, title, goal: "", progress: 0, memo: "", sourceLocale: "ja", memoLocale: "ja", withdrawn: false, ...extra
+    });
+    const week = (userId: string, items: TodoItem[], start = weekStart): TodoWeek => {
+      const shared = { items, at: 1, revision: 1, contentVersion: "v1" };
+      return { userId, weekStart: start, shared, initial: shared, review: null, reviewRevision: null };
+    };
+    getWeeklyTodoWorkspace.mockResolvedValue({
+      ownDraft: { items: [item("未共有の下書き")], version: 1 },
+      weeks: [
+        week("outsider", [item("対象外の担当")]),
+        week(profile.uid, [item("別週の作業")], "2025-01-06"),
+        week(profile.uid, [
+          item("公開した作業", { businessLink: { initiativeId: "work-a", milestoneId: "done", initiativeName: "最初の取り組み", milestoneName: "完了した条件" } }),
+          item("取り下げた作業", { withdrawn: true })
+        ])
+      ]
+    });
+    const onOpenWeeklyWork = vi.fn();
+    render(<BusinessPage profile={profile} onCreateAnnouncement={vi.fn()} onOpenWeeklyWork={onOpenWeeklyWork} />);
+    const assignments = within(await screen.findByRole("complementary", { name: "今週の担当" }));
+    expect(await assignments.findByText("公開した作業")).toBeInTheDocument();
+    for (const title of ["未共有の下書き", "対象外の担当", "別週の作業", "取り下げた作業"]) {
+      expect(assignments.queryByText(title)).not.toBeInTheDocument();
+    }
+    fireEvent.click(assignments.getByRole("button", { name: "担当者の今週の作業を開く" }));
+    expect(onOpenWeeklyWork).toHaveBeenCalledWith(profile.uid);
+    fireEvent.click(assignments.getByRole("button", { name: "最初の取り組み" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 });
