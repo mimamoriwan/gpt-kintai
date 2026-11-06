@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-06-business-weekly-todo-link",
+    updatedAt: "2026-11-06T14:33:50.654+09:00",
+    kind: "feature",
+    content: {
+      ja: {
+        title: "会社の取り組みから今週のTo Doへ追加",
+        areas: ["会社の取り組み", "今週のTo Do"],
+        changes: ["取り組みの達成項目を選んで、今週のTo Doの下書きに追加できます。達成項目の完了件数も表示します。", "To Doで完了を報告すると、結果が元の取り組みに記録されます。同じ目標を達成した場合は、元の達成項目も完了にできます。"],
+        benefits: ["案件名や目標を入力し直さずに今週の作業を作り、取り組みの詳細から完了報告を確認できます。"]
+      },
+      "zh-CN": {
+        title: "从公司重点工作添加本周待办",
+        areas: ["公司重点工作", "本周待办"],
+        changes: ["选择达成项即可添加到本周待办草稿，详情页会显示达成项的完成数量。", "报告待办完成后，结果会记录到原工作中。如果达到了同一目标，也可以同时完成原达成项。"],
+        benefits: ["无需重新输入工作名称和目标，即可安排本周任务，并在原工作详情中查看完成报告。"]
+      }
+    }
+  },
+  {
     "id": "2026-10-28-meeting-resume-ai-timeout",
     "updatedAt": "2026-10-28T13:17:48.974+09:00",
     "kind": "fix",

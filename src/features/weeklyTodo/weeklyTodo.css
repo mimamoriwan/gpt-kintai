@@ -34,5 +34,9 @@
 .todo-action-dock{position:fixed;z-index:45;bottom:16px;left:264px;right:24px;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;padding:12px 16px;border:1px solid #dbe3ef;border-radius:16px;background:rgba(255,255,255,.98);box-shadow:0 8px 32px #1e293b24}
 .todo-action-dock>button{min-height:44px;min-width:0}
 .todo-dock-status{margin-right:auto;font-size:.8rem;color:#64748b;overflow-wrap:anywhere}
+.todo-linked-origin,.todo-linked-report{display:grid;justify-items:start;gap:8px;min-width:0;padding:12px;border:1px solid #c7d2fe;border-radius:10px;background:#eef2ff;color:#312e81;overflow-wrap:anywhere}
+.todo-linked-origin{grid-template-columns:auto minmax(0,1fr);align-items:baseline}
+.todo-linked-origin>span{grid-column:1/-1;font-size:.85rem}
+.todo-linked-report>p{margin:0;color:#475569;font-size:.85rem;line-height:1.6}
 @media(max-width:1000px){.todo-action-dock{left:16px;right:16px;bottom:calc(78px + env(safe-area-inset-bottom))}}
 @media(max-width:600px){.todo-member-picker{gap:7px}.todo-member-picker>button{flex:1 1 0;padding:10px 8px;font-size:.85rem;justify-items:center;text-align:center}.todo-action-dock{gap:8px;padding:10px;left:12px;right:12px}.todo-dock-status{flex-basis:100%;font-size:.75rem}.todo-action-dock>button{flex:1;padding:9px 6px;font-size:.8rem}.todo-action-dock>button svg{display:none}.todo-view-switch>button{padding:9px 5px;font-size:.85rem;flex-wrap:wrap}.weekly-todo-page{padding-bottom:calc(250px + env(safe-area-inset-bottom))}}

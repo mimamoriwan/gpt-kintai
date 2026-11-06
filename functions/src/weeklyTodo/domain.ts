@@ -13,19 +13,40 @@ export function weekDates(start: string) {
   return { weekStart: start, targetDate: add(4), weekEnd: add(6) };
 }
 export const weekInput = z.object({ weekStart: z.string().length(10) }).strict();
+const businessLinkSchema = z.object({
+  initiativeId: identifier, milestoneId: identifier,
+  initiativeName: z.string().min(1).max(200), milestoneName: z.string().min(1).max(200)
+}).strict();
+const businessCompletionSchema = z.object({
+  id: identifier, at: z.number().int().nonnegative(), milestoneChanged: z.boolean()
+}).strict();
 export const itemSchema = z.object({
   id: identifier, title: z.string().trim().max(200), goal: z.string().trim().max(2000),
   progress: z.number().int().min(0).max(100), memo: z.string().trim().max(4000),
   sourceLocale: locale, memoLocale: locale, withdrawn: z.boolean().default(false),
-  carriedFrom: z.object({ weekStart: z.string().length(10), itemId: identifier }).strict().optional()
+  carriedFrom: z.object({ weekStart: z.string().length(10), itemId: identifier }).strict().optional(),
+  businessLink: businessLinkSchema.optional(),
+  businessCompletion: businessCompletionSchema.optional()
 }).strict();
 export const mutationInput = weekInput.extend({
   expectedVersion: z.number().int().min(0), operationId: identifier,
   items: z.array(itemSchema).max(30)
 }).strict();
+export const addBusinessMilestonesInput = weekInput.extend({
+  initiativeId: identifier,
+  expectedInitiativeVersion: z.number().int().nonnegative(),
+  milestoneIds: z.array(identifier).min(1).max(3).refine(ids => new Set(ids).size === ids.length)
+}).strict();
+export const reportBusinessCompletionInput = mutationInput.extend({
+  itemId: identifier,
+  action: z.enum(["complete", "reopen"]),
+  completeMilestone: z.boolean(),
+  reportLocale: locale
+}).strict();
 export const historyInput = weekInput.extend({ userId: z.string().min(1).max(128), cursor: z.string().max(100).optional() }).strict();
 export const translationInput = weekInput.extend({ userId: z.string().min(1).max(128), contentVersion: z.string().length(64), revision: z.number().int().min(1), targetLocale: locale }).strict();
 export type TodoItem = z.infer<typeof itemSchema>;
+export type BusinessLink = z.infer<typeof businessLinkSchema>;
 export type Snapshot = { items: TodoItem[]; at: number; revision: number; contentVersion: string };
 export type Row = Record<string, any>;
 export function scopeOf(profile: Row): string {
@@ -35,6 +56,7 @@ export function scopeOf(profile: Row): string {
 }
 export const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const documentId = (scope: string, uid: string, week: string) => digest([scope, uid, week]);
+export const businessLinkKey = (link: BusinessLink) => digest([link.initiativeId, link.milestoneId]);
 export function snapshot(items: TodoItem[], revision: number, at: number): Snapshot {
   return { items, revision, at, contentVersion: digest(items) };
 }
@@ -45,4 +67,6 @@ export function validateItems(items: TodoItem[], kind: "draft" | "share" | "revi
   if (kind === "review" && items.some(item => !item.memo)) throw new HttpsError("invalid-argument", "各項目の実績・残ったことを入力してください。");
   const sources = items.filter(item => item.carriedFrom).map(item => digest(item.carriedFrom));
   if (new Set(sources).size !== sources.length) throw new HttpsError("invalid-argument", "同じ項目を重複して引き継ぐことはできません。");
+  const links = items.flatMap(item => item.businessLink ? [businessLinkKey(item.businessLink)] : []);
+  if (new Set(links).size !== links.length) throw new HttpsError("invalid-argument", "同じ達成項目は同じ週に複数追加できません。", { reason: "linked-todo-duplicate" });
 }

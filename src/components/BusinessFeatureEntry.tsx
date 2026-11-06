@@ -76,10 +76,17 @@ export function useBusinessEntry(uid: string | undefined, onNavigate: (section: 
     }
   }, [uid]);
 
+  const openInitiative = useCallback((initiativeId: string) => {
+    if (!businessFeatureAvailable || !uid || previousUid.current !== uid) return;
+    setEntry(current => ({ ...(current.uid === uid ? current : {}), uid, initiativeId }));
+    onNavigate("business");
+  }, [uid, onNavigate]);
+
   return {
     initialInitiativeId: entry.uid === uid ? entry.initiativeId : undefined,
     announcementDraft: uid && entry.uid === uid ? entry.draft : undefined,
     createAnnouncement,
+    openInitiative,
     clearRoute
   };
 }
@@ -98,7 +105,7 @@ class BusinessBoundary extends Component<{ children: ReactNode; onRetry: () => v
 
 const loadBusinessPage = () => lazy(() => import("../features/business/BusinessPage"));
 
-export function BusinessFeatureEntry(props: { profile: UserProfile; onCreateAnnouncement: (draft: BusinessAnnouncementDraft) => void; initialInitiativeId?: string }) {
+export function BusinessFeatureEntry(props: { profile: UserProfile; onCreateAnnouncement: (draft: BusinessAnnouncementDraft) => void; initialInitiativeId?: string; onOpenWeeklyTodo?: (itemId: string) => void }) {
   const { locale } = useI18n();
   const [Page, setPage] = useState(loadBusinessPage);
   const [attempt, setAttempt] = useState(0);

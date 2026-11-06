@@ -27,7 +27,7 @@ describe("company initiative overview", () => {
     const workspace = fixture();
     const row = workspace.initiatives.find(item => item.id === "work-a")!;
     row.milestones = ["one", "two", "three"].map((id, order) => ({
-      id, name: `節目${order + 1}`, order, archived: false, completed: false, updatedAt: 0, updatedBy: profile.uid
+      id, name: `達成項目${order + 1}`, order, archived: false, completed: false, updatedAt: 0, updatedBy: profile.uid
     }));
     api.getBusinessWorkspace.mockResolvedValue(workspace);
     render(<BusinessPage profile={profile} onCreateAnnouncement={vi.fn()} />);
@@ -48,7 +48,7 @@ describe("company initiative overview", () => {
 
     await screen.findByRole("button", { name: "最初の取り組み" });
     expect(fill().style.width).toBe("0%");
-    expect(within(screen.getByRole("row", { name: /最初の取り組み/ })).getByLabelText("3件中0件の節目が完了")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /最初の取り組み/ })).getByLabelText("3件中0件の達成項目が完了")).toBeInTheDocument();
 
     const oneCompleted = fixture();
     oneCompleted.initiatives.find(item => item.id === "work-a")!.milestones = row.milestones.map((step, index) => ({ ...step, completed: index === 0 }));

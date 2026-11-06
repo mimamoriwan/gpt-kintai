@@ -34,9 +34,9 @@ export function BusinessOverview({ view, themes, rows, workspace, selectedId, se
     <div className="business-overview-heading"><span>{c("全体の予定", "整体计划")}</span><span>{months[0]} → {months[monthCount - 1]}<span className="business-overview-total">{c(`${rows.length}件`, `${rows.length}项`)}</span></span></div>
     <div className="business-overview-scroll" tabIndex={0} role="region" aria-label={c("工程表（縦・横にスクロールできます）", "计划图（可上下左右滚动）")}>
       <table className="business-overview-table" style={tableStyle}>
-        <caption className="business-overview-accessible-caption">{c("横棒は予定期間、色と文字は状態、下端の緑色と点・数は完了した節目です。", "横条表示计划期间，颜色与文字表示状态，下沿的绿色、圆点和数字表示已完成里程碑。")}</caption>
+        <caption className="business-overview-accessible-caption">{c("横棒は予定期間、色と文字は状態、下端の緑色と点・数は完了した達成項目です。", "横条表示计划期间，颜色与文字表示状态，下沿的绿色、圆点和数字表示已完成达成项。")}</caption>
         <colgroup><col className="business-overview-name-column" /><col className="business-overview-progress-column" />{months.map(month => <col key={month} />)}</colgroup>
-        <thead><tr><th scope="col">{c("取り組み・担当", "工作与负责人")}</th><th scope="col">{c("節目の完了", "已完成节点")}</th>{months.map((month, index) => <th scope="col" key={month} aria-label={month} className={month === timeline.todayMonth ? "business-overview-current-month" : undefined}>
+        <thead><tr><th scope="col">{c("取り組み・担当", "工作与负责人")}</th><th scope="col">{c("達成項目の完了", "已完成达成项")}</th>{months.map((month, index) => <th scope="col" key={month} aria-label={month} className={month === timeline.todayMonth ? "business-overview-current-month" : undefined}>
           <span className="business-overview-year">{index === 0 || month.slice(5) === "01" ? month.slice(0, 4) : "\u00a0"}</span>
           <span>{Number(month.slice(5))}{c("月", "月")}</span>
           {month === timeline.todayMonth && <small>{c(`今日 ${today.day}日`, `今天 ${today.day}日`)}</small>}
@@ -47,8 +47,8 @@ export function BusinessOverview({ view, themes, rows, workspace, selectedId, se
         </tbody>)}
       </table>
     </div>
-    <div className="business-overview-legend" aria-label={c("工程表の見方", "计划图说明")}><div>{statuses.map(status => <span key={status}><i aria-hidden="true" className={`business-overview-swatch business-overview-bar-${status}`} />{statusLabel(status, locale)}</span>)}</div><span>{c("横棒＝予定期間　縦線＝今日　下端の緑色＝完了した節目", "横条＝计划期间　竖线＝今天　下沿绿色＝已完成里程碑")}</span></div>
-    <p className="business-overview-note">{c("下端の緑色と●●○ 2/3は、3つの節目のうち2つが完了したことを表します。作業量の割合ではありません。", "下沿的绿色和●●○ 2/3表示3个里程碑中已完成2个，不代表工作量比例。")}</p>
+    <div className="business-overview-legend" aria-label={c("工程表の見方", "计划图说明")}><div>{statuses.map(status => <span key={status}><i aria-hidden="true" className={`business-overview-swatch business-overview-bar-${status}`} />{statusLabel(status, locale)}</span>)}</div><span>{c("横棒＝予定期間　縦線＝今日　下端の緑色＝完了した達成項目", "横条＝计划期间　竖线＝今天　下沿绿色＝已完成达成项")}</span></div>
+    <p className="business-overview-note">{c("下端の緑色と●●○ 2/3は、3つの達成項目のうち2つが完了したことを表します。作業量の割合ではありません。", "下沿的绿色和●●○ 2/3表示3个达成项中已完成2个，不代表工作量比例。")}</p>
   </div>;
 }
 
@@ -59,7 +59,7 @@ function TimelineRow({ row, workspace, selected, select, months, todayPosition }
   const end = hasPeriod ? monthIndex(row.plannedEndMonth) - monthIndex(months[0]) : 0;
   const period = hasPeriod ? `${row.plannedStartMonth} → ${row.plannedEndMonth} · ${statusLabel(row.status, locale)}` : c("期間未設定", "期间未设置");
   const milestoneProgress = milestoneCount(row);
-  const milestoneLabel = milestoneProgress.total ? c(`節目 ${milestoneProgress.completed}/${milestoneProgress.total}件完了`, `里程碑已完成 ${milestoneProgress.completed}/${milestoneProgress.total} 个`) : c("節目未設定", "里程碑未设置");
+  const milestoneLabel = milestoneProgress.total ? c(`達成項目 ${milestoneProgress.completed}/${milestoneProgress.total}件完了`, `达成项已完成 ${milestoneProgress.completed}/${milestoneProgress.total} 个`) : c("達成項目未設定", "达成项未设置");
   return <tr className={`business-overview-row${selected ? " business-selected" : ""}`} onClick={event => { if (!(event.target instanceof Element) || !event.target.closest("button")) select(); }}>
     <th scope="row"><InitiativeName row={row} selected={selected} select={select} /><small>{memberNames(row.assigneeIds, workspace.members, locale)}</small></th>
     <td className="business-overview-progress"><MilestoneSummary row={row} /></td>
@@ -75,8 +75,8 @@ function TimelineRow({ row, workspace, selected, select, months, todayPosition }
 
 function MilestoneSummary({ row }: { row: BusinessInitiative }) {
   const { locale } = useI18n(); const count = milestoneCount(row);
-  if (!count.total) return <span className="business-muted">{locale === "ja" ? "節目未設定" : "里程碑未设置"}</span>;
-  return <span className="business-milestone-count" aria-label={locale === "ja" ? `${count.total}件中${count.completed}件の節目が完了` : `${count.total}个里程碑已完成${count.completed}个`}><span aria-hidden="true">{"●".repeat(count.completed)}{"○".repeat(count.total - count.completed)}</span><strong>{count.completed}/{count.total}</strong></span>;
+  if (!count.total) return <span className="business-muted">{locale === "ja" ? "達成項目未設定" : "达成项未设置"}</span>;
+  return <span className="business-milestone-count" aria-label={locale === "ja" ? `${count.total}件中${count.completed}件の達成項目が完了` : `${count.total}个达成项已完成${count.completed}个`}><span aria-hidden="true">{"●".repeat(count.completed)}{"○".repeat(count.total - count.completed)}</span><strong>{count.completed}/{count.total}</strong></span>;
 }
 
 function InitiativeName({ row, selected, select }: { row: BusinessInitiative; selected: boolean; select: () => void }) {

@@ -35,6 +35,7 @@ export interface BusinessInitiative extends BusinessRecord {
 export interface BusinessUpdate {
   id: string; initiativeId: string; body: string; sourceLocale: Locale;
   authorId: string; authorName: string; createdAt: number; contentVersion: string;
+  weeklyTodo?: { weekStart: string; itemId: string; milestoneId: string; action: "complete" | "reopen"; milestoneChanged: boolean; previousReportId?: string };
 }
 export interface BusinessHistory {
   id: string; entityType: "theme" | "initiative" | "settings"; entityId: string;

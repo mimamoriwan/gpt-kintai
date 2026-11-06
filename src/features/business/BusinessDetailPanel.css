@@ -32,6 +32,13 @@
 .business-page .business-detail-card .business-milestone { margin: 4px 0; align-items: flex-start; padding: 5px 0; line-height: 1.5; }
 .business-detail-card .business-milestone input { margin-top: 2px; }
 .business-detail-card .business-milestone small { margin-top: 3px; font-size: 11px; }
+.business-detail-progress { display: block; width: 100%; height: 12px; margin-bottom: 10px; accent-color: #15803d; }
+.business-milestone-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0 8px; padding: 0 8px; border-radius: 8px; }
+.business-milestone-row.selected { background: var(--business-bg); box-shadow: inset 0 0 0 1px var(--business-blue); }
+.business-milestone-row > .business-milestone { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.business-page .business-milestone-pick { flex: 0 0 auto; padding: 5px 0; color: var(--business-blue); font-size: 12px; }
+.business-added-todo { margin-top: 8px; }
+.business-linked-report-label { display: block; margin-bottom: 6px; color: #166534; font-size: 12px; }
 .business-page .business-detail-note { margin: 10px 0 0; font-size: 11px; line-height: 1.6; }
 .business-detail-latest { padding: 0 0 0 24px; border-left: 1px solid var(--business-border); }
 .business-detail-card .business-latest-update { border: 0; padding: 0; font-size: 13px; }

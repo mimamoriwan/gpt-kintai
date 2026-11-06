@@ -28,7 +28,115 @@ beforeEach(() => {
   db.rows.set("users/demo", { uid: "demo", displayName: "demo", role: "employee", active: true, isDemo: true, demoDatasetId: "one" });
   db.rows.set("users/demo2", { uid: "demo2", displayName: "demo2", role: "employee", active: true, isDemo: true, demoDatasetId: "two" });
   translate = vi.fn(async (fields: Record<string, string>) => Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, value ? `译:${value}` : ""])));
-  service = createWeeklyTodoService({ db: db as unknown as Firestore, getAccount: async uid => ({ disabled: disabled.has(uid) }), translate, now: () => reportTime + sequence });
+  service = createWeeklyTodoService({ db: db as unknown as Firestore, getAccount: async uid => ({ disabled: disabled.has(uid) }), translate, now: () => reportTime + sequence, businessEnabled: () => true });
+});
+describe("company initiative to weekly To Do", () => {
+  const initiativePath = "businessInitiatives/initiative-a";
+  const addition = { weekStart, initiativeId: "initiative-a", expectedInitiativeVersion: 1, milestoneIds: ["step-a"] };
+  const imported = (): TodoItem => record().draft.items.find((row: TodoItem) => row.businessLink)!;
+  const complete = (items: TodoItem[], version: number, completeMilestone = true) => ({
+    ...input(items, version), itemId: imported().id, action: "complete", completeMilestone, reportLocale: "ja"
+  });
+  const reports = () => [...db.rows].filter(([path]) => path.startsWith("businessUpdates/")).map(([, row]) => row);
+  beforeEach(() => {
+    db.rows.set("businessSettings/company", { enabled: true, memberIds: ["owner", "manager", "president"] });
+    db.rows.set("businessThemes/theme-a", { scopeId: "company", archived: false });
+    db.rows.set(initiativePath, {
+      id: "initiative-a", scopeId: "company", themeId: "theme-a", name: "出店準備", sourceLocale: "ja", version: 1, assigneeIds: ["owner"], status: "in_progress", archived: false,
+      milestones: [{ id: "step-a", name: "条件を確定", order: 0, archived: false, completed: false, updatedAt: 0, updatedBy: "owner" }]
+    });
+  });
+  it("appends to the current owner's draft once and never publishes the plan on add", async () => {
+    await service.saveWeeklyTodoDraft(auth(), input([item({ title: "PRIVATE DRAFT" })]));
+    const first = await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    const repeat = await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    expect(first).toMatchObject({ addedCount: 1 });
+    expect(repeat).toEqual({ addedCount: 0, itemIds: first.itemIds });
+    expect(record().version).toBe(2);
+    expect(record().draft.items[0].title).toBe("PRIVATE DRAFT");
+    expect(imported()).toMatchObject({ id: first.itemIds[0], title: "条件を確定", goal: "条件を確定", businessLink: { initiativeId: "initiative-a", milestoneId: "step-a" } });
+    expect((await service.getWeeklyTodoWorkspace(auth("president"), { weekStart })).weeks).toHaveLength(0);
+    expect(db.rows.get(initiativePath)!.milestones[0].completed).toBe(false);
+  });
+  it("publishes one task and its initiative result together, safely retries, then records reopening", async () => {
+    await service.shareWeeklyTodo(auth(), input([item({ title: "公開済みの計画" })]));
+    await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    const submission = complete([item({ title: "未共有の書き直し" }), { ...imported(), memo: "結果を確認した" }], 2);
+    const result = await service.reportLinkedWeeklyTodoCompletion(auth(), submission);
+    expect(await service.reportLinkedWeeklyTodoCompletion(auth(), submission)).toEqual(result);
+    expect(record().shared.items.map((row: TodoItem) => row.title)).toEqual(["公開済みの計画", "条件を確定"]);
+    expect(record().draft.items[0].title).toBe("未共有の書き直し");
+    expect(imported()).toMatchObject({ progress: 100, businessCompletion: { milestoneChanged: true } });
+    expect(db.rows.get(initiativePath)).toMatchObject({ status: "in_progress", milestones: [{ completed: true }], latestUpdate: { body: "結果を確認した" } });
+    expect(reports()).toHaveLength(1);
+    const priorId = reports()[0].id;
+    await service.reportLinkedWeeklyTodoCompletion(auth(), { ...complete(record().draft.items, 3, false), action: "reopen" });
+    expect(imported()).toMatchObject({ progress: 0 });
+    expect(imported().businessCompletion).toBeUndefined();
+    expect(db.rows.get(initiativePath)!.milestones[0].completed).toBe(false);
+    expect(reports()).toHaveLength(2);
+    expect(reports()[1].weeklyTodo).toMatchObject({ previousReportId: priorId, action: "reopen" });
+    expect((await service.getWeeklyTodoHistory(auth("manager"), { weekStart, userId: "owner" })).history.map(row => row.snapshot.revision)).toEqual([3, 2, 1]);
+  });
+  it("reports a smaller weekly task without marking its parent goal complete", async () => {
+    await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    const narrower = { ...imported(), title: "条件案を送付", goal: "送付を済ませる", memo: "送付済み" };
+    await expect(service.reportLinkedWeeklyTodoCompletion(auth(), complete([narrower], 1))).rejects.toMatchObject({ details: { reason: "linked-milestone-changed" } });
+    expect(record().version).toBe(1);
+    expect(reports()).toHaveLength(0);
+    await service.reportLinkedWeeklyTodoCompletion(auth(), complete([narrower], 1, false));
+    expect(imported().progress).toBe(100);
+    expect(db.rows.get(initiativePath)!.milestones[0].completed).toBe(false);
+    expect(reports()[0].body).toBe("送付済み");
+  });
+  it("does not undo a later manual change when the weekly completion is reopened", async () => {
+    await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    await service.reportLinkedWeeklyTodoCompletion(auth(), complete([imported()], 1));
+    Object.assign(db.rows.get(initiativePath)!.milestones[0], { updatedBy: "manager", updatedAt: reportTime + 10 });
+    await service.reportLinkedWeeklyTodoCompletion(auth(), { ...complete([imported()], 2, false), action: "reopen" });
+    expect(db.rows.get(initiativePath)!.milestones[0].completed).toBe(true);
+    expect(reports()[1].weeklyTodo.milestoneChanged).toBe(false);
+  });
+  it("retains the source link through selected carryover and avoids duplicate current-week imports", async () => {
+    await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    await service.shareWeeklyTodo(auth(), input([imported()], 1));
+    reportTime += 7 * 86400000;
+    const nextWeek = "2026-10-26";
+    const { carryover } = await service.getWeeklyTodoWorkspace(auth(), { weekStart: nextWeek });
+    const carried = { ...carryover[0], id: "carried-task" };
+    await service.saveWeeklyTodoDraft(auth(), input([carried], 0, nextWeek));
+    expect(await service.addBusinessMilestonesToWeeklyTodo(auth(), { ...addition, weekStart: nextWeek })).toEqual({ itemIds: [carried.id], addedCount: 0 });
+    expect(record("owner", nextWeek).draft.items[0].businessLink).toEqual(imported().businessLink);
+  });
+  it("blocks forged links and writes after the initiative is archived or moved to another scope", async () => {
+    await expect(service.addBusinessMilestonesToWeeklyTodo(auth("demo"), addition)).rejects.toMatchObject({ code: "permission-denied" });
+    await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    const linked = imported();
+    await expect(service.saveWeeklyTodoDraft(auth("president"), input([linked]))).rejects.toMatchObject({ code: "invalid-argument" });
+    await expect(service.saveWeeklyTodoDraft(auth(), input([{ ...linked, businessLink: undefined }], 1))).rejects.toMatchObject({ code: "invalid-argument" });
+    db.rows.get(initiativePath)!.archived = true;
+    await expect(service.reportLinkedWeeklyTodoCompletion(auth(), complete([linked], 1))).rejects.toMatchObject({ code: "failed-precondition" });
+    db.rows.get(initiativePath)!.archived = false;
+    db.rows.get(initiativePath)!.scopeId = "other-scope";
+    await expect(service.reportLinkedWeeklyTodoCompletion(auth(), complete([linked], 1))).rejects.toMatchObject({ code: "not-found" });
+    expect(reports()).toHaveLength(0);
+    expect(record().version).toBe(1);
+  });
+  it("filters linked work and translations when a shared viewer loses initiative access", async () => {
+    await service.addBusinessMilestonesToWeeklyTodo(auth(), addition);
+    await service.shareWeeklyTodo(auth(), input([item(), imported()], 1));
+    const translated = { weekStart, userId: "owner", revision: 1, contentVersion: record().shared.contentVersion, targetLocale: "zh-CN" };
+    expect(JSON.stringify(await service.translateWeeklyTodoContent(auth("manager"), translated))).toContain("条件を確定");
+    db.rows.get("businessSettings/company")!.memberIds = ["owner", "president"];
+    for (const value of [
+      await service.getWeeklyTodoWorkspace(auth("manager"), { weekStart }),
+      await service.getWeeklyTodoHistory(auth("manager"), { weekStart, userId: "owner" }),
+      await service.translateWeeklyTodoContent(auth("manager"), translated)
+    ]) {
+      expect(JSON.stringify(value)).toContain("比較表を作成");
+      expect(JSON.stringify(value)).not.toMatch(/出店準備|条件を確定/);
+    }
+  });
 });
 describe("week boundaries", () => {
   it("handles a year boundary and leap year", () => { expect(weekDates("2025-12-29")).toEqual({ weekStart: "2025-12-29", targetDate: "2026-01-02", weekEnd: "2026-01-04" }); expect(weekDates("2024-02-26").targetDate).toBe("2024-03-01"); });

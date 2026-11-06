@@ -2,6 +2,7 @@ import type { Firestore, Query } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import type { Evidence, Input } from "./domain.js";
 import { scopeOf as businessScope } from "../business/domain.js";
+import { canReadLinkedWeeklyTodo } from "../weeklyTodo/businessLink.js";
 
 type Row = Record<string, any>;
 const day = (at: number) => new Date(at + 9 * 3600000).toISOString().slice(0, 10);
@@ -62,9 +63,12 @@ export async function collectEvidence(db: Firestore, input: Input, ownerUid: str
   if (input.sources.todo) {
     // Read immutable shared history only. Never read weeklyTodoWeeks.draft, including the owner's.
     const history = await rows(db.collection("weeklyTodoHistory").where("snapshot.at", ">=", start).where("snapshot.at", "<=", end));
+    const linked = history.some(row => row.snapshot?.items?.some((item: Row) => item.businessLink));
+    const canReadLinked = linked && await canReadLinkedWeeklyTodo(db, ownerUid, { isDemo: false }, businessEnabled);
     const groups = new Map<string, Row[]>();
     for (const r of history.filter(r => r.scopeId === "production" && ["share", "review"].includes(r.kind) && inRange(time(r.snapshot?.at)) && (!input.userId || r.userId === input.userId))) {
       for (const item of r.snapshot.items || []) {
+        if (item.businessLink && !canReadLinked) continue;
         const key = `${r.userId}:${r.weekStart}:${item.id}`;
         groups.set(key, [...(groups.get(key) || []), { ...item, at: time(r.snapshot.at), revision: r.snapshot.revision, kind: r.kind, userId: r.userId, weekStart: r.weekStart }]);
       }

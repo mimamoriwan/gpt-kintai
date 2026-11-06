@@ -7,7 +7,7 @@ import { todayJst } from "../../lib/format";
 import type { TodoItem, TodoSnapshot, TodoWorkspace } from "./types";
 
 const state = vi.hoisted(() => ({ locale: "ja" as Locale }));
-const api = vi.hoisted(() => ({ getWeeklyTodoWorkspace: vi.fn(), saveWeeklyTodoDraft: vi.fn(), shareWeeklyTodo: vi.fn(), shareWeeklyTodoReview: vi.fn(), getWeeklyTodoHistory: vi.fn(), translateWeeklyTodoContent: vi.fn(), addWeeklyTodoToDailyReport: vi.fn() }));
+const api = vi.hoisted(() => ({ getWeeklyTodoWorkspace: vi.fn(), saveWeeklyTodoDraft: vi.fn(), shareWeeklyTodo: vi.fn(), shareWeeklyTodoReview: vi.fn(), getWeeklyTodoHistory: vi.fn(), translateWeeklyTodoContent: vi.fn(), addWeeklyTodoToDailyReport: vi.fn(), reportLinkedWeeklyTodoCompletion: vi.fn() }));
 vi.mock("../../i18n", () => ({ useI18n: () => state }));
 vi.mock("./api", () => ({ ...api, todoError: () => "入力は残しています。最新内容をご確認ください。" }));
 const profile: UserProfile = { uid: "owner", displayName: "担当者A", email: "a@example.test", active: true, locale: "ja", role: "employee" };
@@ -31,6 +31,31 @@ function fill() {
   fireEvent.click(screen.getByRole("button", { name: "業務を追加" })); fireEvent.change(screen.getByLabelText("取り組む業務"), { target: { value: "比較資料" } }); fireEvent.change(screen.getByLabelText("金曜日までの到達目標"), { target: { value: "比較表の初稿" } });
 }
 describe("weekly To Do workspace", () => {
+  it("opens an imported task in the editor and explicitly sends its completion to the initiative", async () => {
+    const linked = item({ id: "linked", title: "審査条件を確定", goal: "審査条件を確定", businessLink: { initiativeId: "work-a", milestoneId: "step-a", initiativeName: "出店準備", milestoneName: "審査条件を確定" } });
+    api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [linked], version: 1 } }));
+    api.reportLinkedWeeklyTodoCompletion.mockImplementation(async ({ items }) => {
+      const completed = { ...items[0], progress: 100, businessCompletion: { id: "report", at: 123, milestoneChanged: true } };
+      api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ ownDraft: { items: [completed], version: 2 } }));
+      return { items: [completed], version: 2 };
+    });
+    const onOpenInitiative = vi.fn();
+    render(<WeeklyTodoPage profile={profile} initialItemId={linked.id} onOpenInitiative={onOpenInitiative} />);
+    expect(await screen.findByLabelText("取り組む業務")).toHaveFocus();
+    const choice = screen.getByRole("checkbox", { name: "元の達成項目も完了にする" });
+    expect(choice).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText("結果・完了報告"), { target: { value: "確認結果をまとめました。" } });
+    fireEvent.click(choice);
+    fireEvent.click(screen.getByRole("button", { name: "完了を報告" }));
+    expect(await screen.findByText("完了報告を元の取り組みに反映しました。")).toBeVisible();
+    expect(api.reportLinkedWeeklyTodoCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      expectedVersion: 1, itemId: linked.id, action: "complete", completeMilestone: true,
+      items: [expect.objectContaining({ memo: "確認結果をまとめました。" })]
+    }));
+    expect(api.shareWeeklyTodo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "取り組みで反映を確認" }));
+    expect(onOpenInitiative).toHaveBeenCalledWith("work-a");
+  });
   it("orders the member picker by role and shows only the selected member's plan", async () => {
     const people = workspace().members;
     api.getWeeklyTodoWorkspace.mockResolvedValue(workspace({ members: [people[1], people[0], people[2]], weeks: [

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { UserProfile } from "../../types";
+import { addBusinessMilestonesToWeeklyTodo, todoError } from "../weeklyTodo/api";
+import { mondayOf } from "../weeklyTodo/calendar";
 import { businessErrorMessage, getBusinessInitiativeDetail, postBusinessUpdate, setBusinessMilestoneCompletion, setBusinessStatus } from "./api";
 import { BusinessComparison } from "./BusinessForms";
 import { businessCopy, dateLabel, memberNames, newBusinessId, safeBusinessLink, statuses, statusLabel } from "./presentation";
@@ -9,10 +11,11 @@ import type { BusinessAnnouncementDraft, BusinessDetail, BusinessInitiative, Bus
 import { TranslatedText } from "./useBusinessTranslation";
 import "./BusinessDetailPanel.css";
 
-export function BusinessDetailPanel({ row, theme, themes, members, profile, canManage, fetchedAt, refresh, onEdit, onArchive, onCreateAnnouncement, onDirty, onAccessError, suspended = false, layout = "timeline" }: {
+export function BusinessDetailPanel({ row, theme, themes, members, profile, canManage, fetchedAt, refresh, onEdit, onArchive, onCreateAnnouncement, onOpenWeeklyTodo, onDirty, onAccessError, suspended = false, layout = "timeline" }: {
   suspended?: boolean; layout?: "timeline" | "list"; row: BusinessInitiative; theme?: BusinessTheme; themes: BusinessTheme[]; members: BusinessMember[]; profile: UserProfile; canManage: boolean; fetchedAt: number;
   refresh: () => Promise<void>; onEdit: (section?: "milestones") => void; onArchive: () => void; onCreateAnnouncement: (draft: BusinessAnnouncementDraft) => void;
   onDirty: (dirty: boolean) => void; onAccessError: (error: unknown) => void;
+  onOpenWeeklyTodo?: (itemId: string) => void;
 }) {
   const { locale } = useI18n(); const c = businessCopy(locale);
   const [detail, setDetail] = useState<BusinessDetail>();
@@ -22,7 +25,12 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
   const postRef = useRef(postId); postRef.current = postId;
   const attempted = useRef<{ id: string; uncertain: boolean } | undefined>(undefined);
   const [message, setMessage] = useState(""); const active = useRef(true); const request = useRef(0); const busyRef = useRef(false);
+  const [selectedMilestones, setSelectedMilestones] = useState<string[]>([]);
+  const [addedItem, setAddedItem] = useState("");
   const canUpdate = !row.archived && !theme?.archived && (canManage || row.assigneeIds.includes(profile.uid));
+  const canAddTodo = canUpdate && Boolean(onOpenWeeklyTodo) && row.status !== "completed";
+  const milestones = [...row.milestones].filter(item => !item.archived).sort((a, b) => a.order - b.order);
+  const selectedIds = milestones.filter(item => !item.completed && selectedMilestones.includes(item.id)).map(item => item.id);
   useEffect(() => { active.current = true; return () => { active.current = false; request.current += 1; }; }, []);
   const fetchDetail = useCallback(async (cursor?: { updatesCursor?: string; historyCursor?: string }) => {
     const sequence = ++request.current; setLoading(true);
@@ -71,11 +79,36 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
     }, c("近況を保存しました。翻訳の成否にかかわらず原文を共有しています。", "动态已保存。无论翻译是否成功，原文均已共享。"));
     if (success && active.current) { setBody(""); setPostId(newBusinessId()); onDirty(false); }
   }
+  async function addToWeeklyTodo() {
+    if (busyRef.current || !canAddTodo || !selectedIds.length) return;
+    busyRef.current = true; setBusy(true); setError(""); setMessage(""); setAddedItem("");
+    try {
+      const result = await addBusinessMilestonesToWeeklyTodo({
+        weekStart: mondayOf(), initiativeId: row.id, expectedInitiativeVersion: row.version, milestoneIds: selectedIds
+      });
+      if (!active.current) return;
+      setSelectedMilestones([]);
+      setAddedItem(result.itemIds[0] || "");
+      setMessage(result.addedCount
+        ? c(`今週のTo Doの下書きに${result.addedCount}件追加しました。`, `已向本周待办草稿添加${result.addedCount}项。`)
+        : c("選んだ項目は今週のTo Doに追加済みです。", "所选事项已在本周待办中。"));
+    } catch (caught) {
+      if (!active.current) return;
+      setError(todoError(caught, locale));
+      await refresh();
+    } finally {
+      busyRef.current = false;
+      if (active.current) setBusy(false);
+    }
+  }
   const count = milestoneCount(row);
   const latestUpdate = [...(detail?.updates || []), ...(row.latestUpdate ? [row.latestUpdate] : [])]
     .filter(update => update.initiativeId === row.id && typeof update.body === "string" && Number.isFinite(update.createdAt))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
   const olderUpdates = detail?.updates.filter(update => update.id !== latestUpdate?.id) || [];
+  const updateLabel = (update: BusinessDetail["updates"][number]) => update.weeklyTodo?.action === "complete"
+    ? c("今週のTo Doからの完了報告", "来自本周待办的完成报告")
+    : update.weeklyTodo?.action === "reopen" ? c("完了報告の取り消し", "撤销完成报告") : "";
   if (suspended) return body ? <section className="business-detail"><p className="business-notice">{c("停止中のため投稿できません。未保存の近況はこの画面に保持しています。", "功能暂停中，无法发布。未保存的动态保留在此页面。")}</p><label>{c("未保存の近況", "未保存的动态")}<textarea readOnly value={body} /></label></section> : null;
   return <section className={`business-detail business-detail-card business-detail-${layout}`} aria-label={c("取り組みの詳細", "工作详情")}>
     <header className="business-detail-heading"><div><small className="business-detail-theme">{theme && <TranslatedText kind="theme" resource={theme} field="name" text={theme.name} />}</small><h2><TranslatedText kind="initiative" resource={row} field="name" text={row.name} /></h2></div>{row.archived && <span className="business-status business-status-not_started">{c("アーカイブ中", "已归档")}</span>}</header>
@@ -85,12 +118,18 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
     </div>
     {(error || loadError) && <div className="business-error" role="alert"><p>{error || loadError}</p><button type="button" disabled={loading} onClick={() => void fetchDetail()}>{c("詳細を再取得", "重新获取详情")}</button></div>}{message && <p role="status" className="business-success">{message}</p>}
     <div className="business-detail-overview">
-    <section className="business-detail-milestones"><div className="business-detail-milestone-heading"><h3>{c("節目", "里程碑")} <span className="business-detail-count">{count.total ? `${count.completed} / ${count.total}` : c("節目未設定", "里程碑未设置")}</span></h3>{canManage && !row.archived && !theme?.archived && <button type="button" disabled={busy} onClick={() => onEdit("milestones")}>{c("節目を編集", "编辑里程碑")}</button>}</div>
-      {[...row.milestones].sort((a,b) => a.order-b.order).filter(m => !m.archived).map(m => <label className="business-check business-milestone" key={m.id}><input type="checkbox" disabled={!canUpdate || busy} checked={m.completed} onChange={e => { const completed = e.target.checked; void act(() => setBusinessMilestoneCompletion({ initiativeId: row.id, milestoneId: m.id, expectedVersion: row.version, completed }), c("節目を更新しました。", "里程碑已更新。")); }} /><span><TranslatedText kind="initiative" resource={row} field={`milestone:${m.id}`} text={m.name} /><small>{m.updatedAt > 0 && `${memberNames([m.updatedBy], members, locale)} · ${dateLabel(m.updatedAt, locale)}`}</small></span></label>)}
-      <p className="business-detail-note business-muted">{c("完了した節目の数です。作業量の割合ではありません。", "显示已完成里程碑数量，不代表工作量百分比。")}</p>
+    <section className="business-detail-milestones"><div className="business-detail-milestone-heading"><h3>{c("達成項目", "达成项")} <span className="business-detail-count">{count.total ? c(`${count.completed}/${count.total}件完了`, `已完成${count.completed}/${count.total}项`) : c("未設定", "未设置")}</span></h3>{canManage && !row.archived && !theme?.archived && <button type="button" disabled={busy} onClick={() => onEdit("milestones")}>{c("達成項目を編集", "编辑达成项")}</button>}</div>
+      {count.total > 0 && <progress className="business-detail-progress" max={count.total} value={count.completed} aria-label={c("達成項目の完了数", "达成项完成数量")} />}
+      {milestones.map(m => <div key={m.id} className={`business-milestone-row${selectedIds.includes(m.id) ? " selected" : ""}`}>
+        <label className="business-check business-milestone"><input type="checkbox" disabled={!canUpdate || busy} checked={m.completed} onChange={e => { const completed = e.target.checked; void act(() => setBusinessMilestoneCompletion({ initiativeId: row.id, milestoneId: m.id, expectedVersion: row.version, completed }), c("達成項目を更新しました。", "达成项已更新。")); }} /><span><TranslatedText kind="initiative" resource={row} field={`milestone:${m.id}`} text={m.name} /><small>{m.updatedAt > 0 && `${memberNames([m.updatedBy], members, locale)} · ${dateLabel(m.updatedAt, locale)}`}</small></span></label>
+        {canAddTodo && !m.completed && <label className="business-check business-milestone-pick"><input type="checkbox" disabled={busy} checked={selectedIds.includes(m.id)} aria-label={c(`今週取り組む: ${m.name}`, `本周开展：${m.name}`)} onChange={e => { const checked = e.target.checked; setSelectedMilestones(ids => checked ? [...ids, m.id] : ids.filter(id => id !== m.id)); }} /><span>{c("今週取り組む", "本周开展")}</span></label>}
+      </div>)}
+      <p className="business-detail-note business-muted">{c("この取り組みで完了させること。数字は完了した項目の数です。", "此工作需要完成的事项。数字表示已完成的项数。")}</p>
+      {canAddTodo && milestones.some(m => !m.completed) && <div className="business-actions"><button type="button" className="business-primary" disabled={busy || !selectedIds.length} onClick={() => void addToWeeklyTodo()}>{c("選んだ項目を今週に追加", "将所选达成项添加到本周")}</button></div>}
+      {addedItem && onOpenWeeklyTodo && <div className="business-actions business-added-todo"><button type="button" disabled={busy} onClick={() => onOpenWeeklyTodo(addedItem)}>{c("今週のTo Doを開く", "打开本周待办")}</button></div>}
     </section>
     <section className="business-detail-latest"><h3>{c("最新の近況", "最新动态")}</h3>
-      {latestUpdate && <article className="business-update business-latest-update"><p><TranslatedText kind="update" resource={latestUpdate} field="body" text={latestUpdate.body} /></p><div className="business-muted">{latestUpdate.authorName} · {dateLabel(latestUpdate.createdAt, locale)}</div></article>}
+      {latestUpdate && <article className="business-update business-latest-update">{updateLabel(latestUpdate) && <strong className="business-linked-report-label">{updateLabel(latestUpdate)}</strong>}<p><TranslatedText kind="update" resource={latestUpdate} field="body" text={latestUpdate.body} /></p><div className="business-muted">{latestUpdate.authorName} · {dateLabel(latestUpdate.createdAt, locale)}</div></article>}
       {loading && !detail && !latestUpdate && <p role="status" className="business-muted">{c("近況と履歴を読み込み中…", "正在加载动态和记录…")}</p>}
       {detail && !latestUpdate && <p className="business-muted">{c("近況はまだありません。", "暂无动态。")}</p>}
       {(row.archived || theme?.archived) && body && <div className="business-notice"><p>{c("アーカイブ中のため投稿できません。未保存の近況は保持しています。復元後に投稿できます。", "归档期间无法发布。未保存的动态已保留，恢复后可以发布。")}</p><label>{c("未保存の近況", "未保存的动态")}<textarea readOnly value={body} /></label></div>}
@@ -98,7 +137,7 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
     </section>
     </div>
     <details className="business-detail-disclosure"><summary>{c("説明・目標時期・参考資料", "说明、目标时间与参考资料")}</summary><div className="business-detail-description"><p><TranslatedText kind="initiative" resource={row} field="description" text={row.description || c("説明は未登録です。", "尚未填写说明。")} /></p><dl className="business-facts"><div><dt>{c("目標時期メモ", "目标时间备注")}</dt><dd><TranslatedText kind="initiative" resource={row} field="targetMemo" text={row.targetMemo || "—"} /></dd></div></dl>{row.referenceLinks.some(safeBusinessLink) && <div className="business-links"><h3>{c("参考資料", "参考资料")}</h3>{row.referenceLinks.map(link => { const href = safeBusinessLink(link); return href && <a key={link} href={href} target="_blank" rel="noopener noreferrer">{link}</a>; })}</div>}</div></details>
-    {(olderUpdates.length > 0 || detail?.nextUpdatesCursor) && <details className="business-detail-disclosure"><summary>{c("これまでの近況", "以往动态")}</summary>{olderUpdates.map(update => <article className="business-update" key={update.id}><div className="business-muted">{update.authorName} · {dateLabel(update.createdAt, locale)}</div><p><TranslatedText kind="update" resource={update} field="body" text={update.body} /></p></article>)}{detail?.nextUpdatesCursor && <button type="button" disabled={loading} onClick={() => void fetchDetail({ updatesCursor: detail.nextUpdatesCursor! })}>{c("以前の近況を表示", "显示更早动态")}</button>}</details>}
+    {(olderUpdates.length > 0 || detail?.nextUpdatesCursor) && <details className="business-detail-disclosure"><summary>{c("これまでの近況", "以往动态")}</summary>{olderUpdates.map(update => <article className="business-update" key={update.id}>{updateLabel(update) && <strong className="business-linked-report-label">{updateLabel(update)}</strong>}<div className="business-muted">{update.authorName} · {dateLabel(update.createdAt, locale)}</div><p><TranslatedText kind="update" resource={update} field="body" text={update.body} /></p></article>)}{detail?.nextUpdatesCursor && <button type="button" disabled={loading} onClick={() => void fetchDetail({ updatesCursor: detail.nextUpdatesCursor! })}>{c("以前の近況を表示", "显示更早动态")}</button>}</details>}
     <details className="business-detail-disclosure"><summary>{c("変更履歴", "变更记录")}</summary>{detail?.history.length === 0 && <p>{c("変更履歴はまだありません。", "暂无变更记录。")}</p>}{detail?.history.map(history => <details className="business-history" key={history.id}><summary>{history.actorName} · {dateLabel(history.createdAt, locale)} · {c("変更内容", "变更内容")}</summary><BusinessComparison before={history.before} after={history.after} members={members} themes={themes} /></details>)}{detail?.nextHistoryCursor && <button type="button" disabled={loading} onClick={() => void fetchDetail({ historyCursor: detail.nextHistoryCursor! })}>{c("以前の変更履歴を表示", "显示更早记录")}</button>}</details>
     <footer className="business-detail-footer"><div className="business-actions">{canManage && <><button type="button" disabled={busy || row.archived || theme?.archived} onClick={() => onEdit()}>{c("取り組みを編集", "编辑工作")}</button><button type="button" disabled={busy || (!row.archived && theme?.archived)} onClick={onArchive}>{row.archived ? c("取り組みを復元", "恢复工作") : c("取り組みをアーカイブ", "归档工作")}</button></>}
       <button type="button" disabled={busy || row.archived} onClick={() => onCreateAnnouncement({ key: newBusinessId(), title: `${c("会社の取り組み", "公司重点工作")}: ${row.name}`.slice(0, 120), body: `${c("関連する取り組み", "相关工作")}: ${row.name}\n${window.location.origin}/#business/${encodeURIComponent(row.id)}\n\n` })}>{c("この件のお知らせを作成", "就此事项创建通知")}</button>

@@ -4,7 +4,7 @@ import { useI18n } from "../../i18n";
 import { warnBeforeLeaving } from "../../pwaUpdate";
 import type { Locale, UserProfile } from "../../types";
 import { addDays, mondayOf } from "./calendar";
-import { addWeeklyTodoToDailyReport, getWeeklyTodoHistory, getWeeklyTodoWorkspace, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, todoError, translateWeeklyTodoContent } from "./api";
+import { addWeeklyTodoToDailyReport, getWeeklyTodoHistory, getWeeklyTodoWorkspace, reportLinkedWeeklyTodoCompletion, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, todoError, translateWeeklyTodoContent } from "./api";
 import type { TodoHistory, TodoItem, TodoSnapshot, TodoTranslation, TodoWeek, TodoWorkspace } from "./types";
 import "./weeklyTodo.css";
 
@@ -13,15 +13,16 @@ const TranslationContext = createContext<TranslationCache>(new Map());
 const copy = (locale: Locale) => (ja: string, zh: string) => locale === "ja" ? ja : zh;
 const dateTime = (at: number, locale: Locale) => new Intl.DateTimeFormat(locale === "ja" ? "ja-JP" : "zh-CN", { timeZone: "Asia/Tokyo", dateStyle: "short", timeStyle: "short" }).format(at);
 const sourceKey = (item: TodoItem) => item.carriedFrom ? `${item.carriedFrom.weekStart}:${item.carriedFrom.itemId}` : "";
+const linkedKey = (item: TodoItem) => item.businessLink ? `${item.businessLink.initiativeId}:${item.businessLink.milestoneId}` : "";
 const newItem = (locale: Locale): TodoItem => ({ id: crypto.randomUUID(), title: "", goal: "", progress: 0, memo: "", sourceLocale: locale, memoLocale: locale, withdrawn: false });
 const reportContent = (item: TodoItem) => JSON.stringify([item.title.trim(), item.goal.trim(), item.progress, item.memo.trim()]);
 
-type PageProps = { profile: UserProfile; onOpenReport?: (date: string) => void };
-export function WeeklyTodoPage({ profile, onOpenReport }: PageProps) {
-  const cache = useMemo<TranslationCache>(() => new Map(), [profile.uid]);
-  return <TranslationContext.Provider value={cache}><WeeklyTodoContent key={profile.uid} profile={profile} onOpenReport={onOpenReport} /></TranslationContext.Provider>;
+type PageProps = { profile: UserProfile; onOpenReport?: (date: string) => void; initialItemId?: string; onOpenInitiative?: (id: string) => void };
+export function WeeklyTodoPage(props: PageProps) {
+  const cache = useMemo<TranslationCache>(() => new Map(), [props.profile.uid]);
+  return <TranslationContext.Provider value={cache}><WeeklyTodoContent key={props.profile.uid} {...props} /></TranslationContext.Provider>;
 }
-function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
+function WeeklyTodoContent({ profile, onOpenReport, initialItemId, onOpenInitiative }: PageProps) {
   const { locale } = useI18n(); const c = copy(locale);
   const [week, setWeek] = useState(mondayOf); const [workspace, setWorkspace] = useState<TodoWorkspace>();
   const [items, setItems] = useState<TodoItem[]>([]); const [version, setVersion] = useState(0);
@@ -29,9 +30,11 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
   const [error, setError] = useState(""); const [feedback, setFeedback] = useState(""); const [conflict, setConflict] = useState(false);
   const [selectedCarry, setSelectedCarry] = useState<string[]>([]);
   const [addedReportDate, setAddedReportDate] = useState("");
-  const [view, setView] = useState<"shared" | "editor">("shared");
+  const [view, setView] = useState<"shared" | "editor">(initialItemId ? "editor" : "shared");
   const [selectedMember, setSelectedMember] = useState("");
-  const [focusItem, setFocusItem] = useState("");
+  const [focusItem, setFocusItem] = useState(initialItemId || "");
+  const [reportedInitiative, setReportedInitiative] = useState("");
+  const reportAttempt = useRef<{ key: string; id: string }>(undefined);
   const editorRef = useRef<HTMLElement>(null);
   const titleInputs = useRef(new Map<string, HTMLInputElement>());
   const active = useRef(true); const dirtyRef = useRef(false); const busyRef = useRef(false); const serial = useRef(0); const localeRef = useRef(locale); localeRef.current = locale;
@@ -42,12 +45,12 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
   }, [workspace?.members]);
   const member = members.find(row => row.uid === selectedMember) || members[0];
   useEffect(() => {
-    if (view !== "editor" || !focusItem) return;
+    if (view !== "editor" || !focusItem || loading) return;
     const input = titleInputs.current.get(focusItem);
     if (input) { input.focus({ preventScroll: true }); input.scrollIntoView?.({ block: "center" }); }
     else if (focusItem === "@editor") editorRef.current?.scrollIntoView?.({ block: "start" });
     setFocusItem("");
-  }, [view, focusItem, items]);
+  }, [view, focusItem, items, loading]);
   function openEditor() {
     setView("editor"); setFocusItem("@editor");
   }
@@ -91,7 +94,8 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
   }, []);
   function move(next: string) {
     if (busyRef.current || (dirtyRef.current && !window.confirm(c("未保存の入力があります。破棄して週を切り替えますか？", "有未保存的输入。要放弃并切换周吗？")))) return;
-    markDirty(false); setWorkspace(undefined); setItems([]); setSelectedCarry([]); setConflict(false); setError(""); setFeedback(""); setAddedReportDate(""); setLoading(true); setWeek(next);
+    if (next === week) { void load(); return; }
+    markDirty(false); setWorkspace(undefined); setItems([]); setSelectedCarry([]); setConflict(false); setError(""); setFeedback(""); setAddedReportDate(""); setReportedInitiative(""); setLoading(true); setWeek(next);
   }
   function update(id: string, patch: Partial<TodoItem>) { setItems(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row)); markDirty(true); setFeedback(""); }
   async function save(kind: "draft" | "share" | "review") {
@@ -139,6 +143,33 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
       if (active.current) { setBusy(false); await load(); }
     }
   }
+  async function reportLinked(item: TodoItem, action: "complete" | "reopen", completeMilestone = false) {
+    if (!item.businessLink || busyRef.current || conflict || !workspace) return;
+    if (!item.title.trim() || !item.goal.trim()) { setError(c("業務と金曜日までの目標を入力してください。", "请填写业务和周五前目标。")); return; }
+    const payload = { weekStart: week, expectedVersion: version, items, itemId: item.id, action, completeMilestone, reportLocale: locale };
+    const key = JSON.stringify(payload);
+    if (reportAttempt.current?.key !== key) reportAttempt.current = { key, id: crypto.randomUUID() };
+    busyRef.current = true; setBusy(true); setError(""); setFeedback(""); setReportedInitiative("");
+    try {
+      const result = await reportLinkedWeeklyTodoCompletion({ ...payload, operationId: reportAttempt.current.id });
+      if (!active.current) return;
+      reportAttempt.current = undefined;
+      setItems(result.items); setVersion(result.version); markDirty(false);
+      setReportedInitiative(item.businessLink.initiativeId);
+      setFeedback(action === "complete"
+        ? c("完了報告を元の取り組みに反映しました。", "完成报告已同步到原工作。")
+        : c("完了報告を取り消しました。元の取り組みに履歴を残しました。", "已撤销完成报告，并在原工作中保留记录。"));
+    } catch (caught) {
+      if (!active.current) return;
+      setError(todoError(caught, locale));
+      if (caught && typeof caught === "object" && "code" in caught && String(caught.code).includes("aborted")) {
+        markDirty(true); setConflict(true);
+      }
+    } finally {
+      busyRef.current = false;
+      if (active.current) { setBusy(false); await load(); }
+    }
+  }
   function reportAction(item: TodoItem) {
     if (profile.role === "president_viewer" || !workspace?.reportLink || week !== mondayOf() || item.withdrawn) return null;
     const saved = workspace.ownDraft?.items.find(row => row.id === item.id);
@@ -150,7 +181,8 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
   }
   function carry() {
     const existing = new Set(items.map(sourceKey));
-    const additions = (workspace?.carryover || []).filter(item => selectedCarry.includes(item.id) && !existing.has(sourceKey(item))).map(item => ({ ...item, id: crypto.randomUUID(), progress: 0, memo: "", memoLocale: locale, withdrawn: false }));
+    const links = new Set(items.map(linkedKey).filter(Boolean));
+    const additions = (workspace?.carryover || []).filter(item => selectedCarry.includes(item.id) && !existing.has(sourceKey(item)) && !links.has(linkedKey(item))).map(item => ({ ...item, id: crypto.randomUUID(), progress: 0, memo: "", memoLocale: locale, withdrawn: false }));
     if (items.length + additions.length > 30) { setError(c("項目は30件までです。", "最多可添加30项。")); return; }
     setItems(rows => [...rows, ...additions]); setSelectedCarry([]); markDirty(true);
   }
@@ -180,22 +212,25 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
         <fieldset disabled={busy || conflict} className="todo-fields">
           {items.length === 0 && <p className="todo-empty">{c("「業務を追加」から今週の予定を入力してください。", "请点击“添加业务”填写本周计划。")}</p>}
           {items.map((item, index) => <TodoItemPanel key={item.id} item={item} title={item.title} className="todo-item-editor">
-            <div className="todo-item-top"><strong>{c("業務", "业务")} {index + 1}</strong>{item.carriedFrom && <small>{c("前週から引き継ぎ", "从上周结转")}</small>}{reportAction(item)}<button type="button" className="todo-text-button" onClick={() => {
+            <div className="todo-item-top"><strong>{c("業務", "业务")} {index + 1}</strong>{item.carriedFrom && <small>{c("前週から引き継ぎ", "从上周结转")}</small>}{reportAction(item)}{!item.businessCompletion && <button type="button" className="todo-text-button" onClick={() => {
               if (own?.shared.items.some(old => old.id === item.id)) update(item.id, { withdrawn: !item.withdrawn });
               else { setItems(rows => rows.filter(row => row.id !== item.id)); markDirty(true); }
-            }}>{own?.shared.items.some(old => old.id === item.id) ? item.withdrawn ? c("取り下げを戻す", "恢复") : c("取り下げる", "撤回") : c("削除", "删除")}</button></div>
-            <label>{c("取り組む業務", "开展的业务")}<input ref={input => { if (input) titleInputs.current.set(item.id, input); else titleInputs.current.delete(item.id); }} maxLength={200} value={item.title} onChange={event => update(item.id, { title: event.target.value, sourceLocale: locale })} /></label>
-            <label>{c("金曜日までの到達目標", "周五前的目标")}<textarea rows={2} maxLength={2000} value={item.goal} onChange={event => update(item.id, { goal: event.target.value, sourceLocale: locale })} /></label>
-            <div className="todo-progress-input"><label>{c("進捗率（％）", "进度（％）")}<input type="number" min={0} max={100} step={1} value={item.progress} onChange={event => update(item.id, { progress: Math.max(0, Math.min(100, Math.round(Number(event.target.value)))) })} /></label><progress max={100} value={item.progress} aria-label={c("進捗率", "进度")} /></div>
-            <label>{c("実績・残ったこと", "实绩与未完成事项")}<textarea rows={3} maxLength={4000} value={item.memo} onChange={event => update(item.id, { memo: event.target.value, memoLocale: locale })} /></label>
+            }}>{own?.shared.items.some(old => old.id === item.id) ? item.withdrawn ? c("取り下げを戻す", "恢复") : c("取り下げる", "撤回") : c("削除", "删除")}</button>}</div>
+            {item.businessLink && <div className="todo-linked-origin"><small>{c("元の取り組み", "原工作")}</small><strong>{item.businessLink.initiativeName}</strong><span>{item.businessLink.milestoneName}</span></div>}
+            <label>{c("取り組む業務", "开展的业务")}<input ref={input => { if (input) titleInputs.current.set(item.id, input); else titleInputs.current.delete(item.id); }} maxLength={200} readOnly={Boolean(item.businessCompletion)} value={item.title} onChange={event => update(item.id, { title: event.target.value, sourceLocale: locale })} /></label>
+            <label>{c("金曜日までの到達目標", "周五前的目标")}<textarea rows={2} maxLength={2000} readOnly={Boolean(item.businessCompletion)} value={item.goal} onChange={event => update(item.id, { goal: event.target.value, sourceLocale: locale })} /></label>
+            <div className="todo-progress-input"><label>{c("進捗率（％）", "进度（％）")}<input type="number" min={0} max={100} step={1} readOnly={Boolean(item.businessCompletion)} value={item.progress} onChange={event => update(item.id, { progress: Math.max(0, Math.min(100, Math.round(Number(event.target.value)))) })} /></label><progress max={100} value={item.progress} aria-label={c("進捗率", "进度")} /></div>
+            <label>{item.businessLink ? c("結果・完了報告", "结果与完成报告") : c("実績・残ったこと", "实绩与未完成事项")}<textarea rows={3} maxLength={4000} readOnly={Boolean(item.businessCompletion)} value={item.memo} onChange={event => update(item.id, { memo: event.target.value, memoLocale: locale })} /></label>
+            {item.businessLink && !item.withdrawn && week <= mondayOf() && <LinkedTodoReport item={item} onReport={(action, completeMilestone) => void reportLinked(item, action, completeMilestone)} />}
+            {item.businessLink && onOpenInitiative && <button type="button" disabled={busy || dirty || conflict} onClick={() => onOpenInitiative(item.businessLink!.initiativeId)}>{c("元の取り組みを開く", "打开原工作")}</button>}
             {item.withdrawn && <p>{c("この項目は取り下げとして共有されます。理由を実績欄に記入してください。", "此项将作为撤回共享，请在实绩栏填写原因。")}</p>}
           </TodoItemPanel>)}
           {(workspace.carryover.length > 0) && <details className="todo-carry"><summary>{c("前週の未完了項目から選んで追加", "选择上周未完成事项并添加")}</summary>{workspace.carryover.map(item => {
-            const included = items.some(row => sourceKey(row) === sourceKey(item));
+            const included = items.some(row => sourceKey(row) === sourceKey(item) || (linkedKey(item) && linkedKey(row) === linkedKey(item)));
             return <label className="todo-check" key={item.id}><input type="checkbox" disabled={included} checked={included || selectedCarry.includes(item.id)} onChange={event => setSelectedCarry(rows => event.target.checked ? [...rows, item.id] : rows.filter(id => id !== item.id))} /><span>{item.title}（{item.progress}％）{included && c("・追加済み", "・已添加")}</span></label>;
           })}<button type="button" disabled={!selectedCarry.length} onClick={carry}>{c("選んだ項目を下書きへ追加", "将所选事项添加到草稿")}</button><p>{c("引き継いだ目標を今週に合わせて見直してください。", "请根据本周安排调整结转目标。")}</p></details>}
         </fieldset>
-        {error && <p className="todo-error" role="alert">{error}</p>}{feedback && <p className="todo-feedback" role="status">{feedback}</p>}{addedReportDate && onOpenReport && <button type="button" disabled={busy || dirty || conflict} onClick={() => onOpenReport(addedReportDate)}>{c(`${addedReportDate}の日報を開く`, `打开${addedReportDate}的日报`)}</button>}
+        {error && <p className="todo-error" role="alert">{error}</p>}{feedback && <p className="todo-feedback" role="status">{feedback}</p>}{feedback && reportedInitiative && onOpenInitiative && <button type="button" disabled={busy || dirty || conflict} onClick={() => onOpenInitiative(reportedInitiative)}>{c("取り組みで反映を確認", "查看原工作中的更新")}</button>}{addedReportDate && onOpenReport && <button type="button" disabled={busy || dirty || conflict} onClick={() => onOpenReport(addedReportDate)}>{c(`${addedReportDate}の日報を開く`, `打开${addedReportDate}的日报`)}</button>}
         <div className="todo-save-actions"><button type="button" className="todo-review-button" disabled={busy || conflict || !items.length} onClick={() => void save("review")}><CheckCheck size={17} />{c("今週の振り返りを共有", "共享本周回顾")}</button></div>
       </section>
       {view === "shared" && error && <p className="todo-error" role="alert">{error}</p>}
@@ -211,6 +246,22 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
       </div>
     </>}
   </main>;
+}
+
+function LinkedTodoReport({ item, onReport }: { item: TodoItem; onReport: (action: "complete" | "reopen", completeMilestone?: boolean) => void }) {
+  const { locale } = useI18n(); const c = copy(locale);
+  const [completeMilestone, setCompleteMilestone] = useState(false);
+  const original = item.businessLink?.milestoneName;
+  const sameGoal = item.title.trim() === original && item.goal.trim() === original;
+  if (item.businessCompletion) return <div className="todo-linked-report">
+    <strong>{c("取り組みに報告済み", "已向原工作报告")}</strong>
+    <button type="button" onClick={() => onReport("reopen")}>{c("完了報告を取り消す", "撤销完成报告")}</button>
+  </div>;
+  return <div className="todo-linked-report">
+    {sameGoal && <label className="todo-check"><input type="checkbox" checked={completeMilestone} onChange={e => setCompleteMilestone(e.target.checked)} /><span>{c("元の達成項目も完了にする", "同时完成原达成项")}</span></label>}
+    <p>{c("この作業の結果を共有し、元の取り組みに反映します。他の入力は下書きに保存します。", "共享此项结果并同步到原工作，其余输入保存为草稿。")}</p>
+    <button type="button" className="todo-primary" onClick={() => onReport("complete", sameGoal && completeMilestone)}><CheckCheck size={17} />{c("完了を報告", "报告完成")}</button>
+  </div>;
 }
 
 function TodoItemPanel({ item, title, className, children }: { item: TodoItem; title: string; className: string; children: ReactNode }) {
