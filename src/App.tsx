@@ -28,6 +28,7 @@ import { LoginRenewalPage } from "./pages/LoginRenewalPage";
 import { getAccountManagement } from "./services/accountManagement";
 import { ProductsPage } from "./pages/ProductsPage";
 import { WorkflowPage } from "./pages/WorkflowPage";
+import { MeetingResumePage } from "./features/meetingResume/MeetingResumePage";
 import { WeeklyTodoPage } from "./features/weeklyTodo/WeeklyTodoPage";
 import { filterDemoScope } from "./lib/demo";
 import { getAppCheckErrorKind, recordAppCheckError } from "./lib/appCheckRecovery";
@@ -89,7 +90,7 @@ export default function App() {
   const [section, setSection] = useState<NavSection>("home");
   const [homeVisit, setHomeVisit] = useState(0);
   useEffect(() => {
-    if (section === "accounts" && !canManageAccounts) setSection("home");
+    if ((section === "accounts" || section === "meetingResume") && !canManageAccounts) setSection("home");
   }, [section, canManageAccounts]);
   const openBusinessSection = useCallback((next: "home" | "business") => setSection(next), []);
   const businessUid = canUseApp ? profile?.uid : undefined;
@@ -193,7 +194,7 @@ export default function App() {
   if (needsPasswordChange && (!profile || profile.active)) return <><AppHeader><AppUpdateNotice /><AppCheckRecoveryNotice /></AppHeader><InitialPasswordChangePage key={user.uid} /></>;
   if (!profile || !profile.active || user.uid !== profile.uid) return <><AppHeader><AppUpdateNotice /><AppCheckRecoveryNotice /></AppHeader><AuthRecoveryPage /></>;
 
-  function navigate(next: NavSection) { if ((next === "business" && !businessFeatureAvailable) || (next === "accounts" && !canManageAccounts)) return; if (next === "home") setHomeVisit((visit) => visit + 1); businessEntry.clearRoute(); setEditingReport(null); setInitialReportDate(undefined); setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function navigate(next: NavSection) { if ((next === "business" && !businessFeatureAvailable) || ((next === "accounts" || next === "meetingResume") && !canManageAccounts)) return; if (next === "home") setHomeVisit((visit) => visit + 1); businessEntry.clearRoute(); setEditingReport(null); setInitialReportDate(undefined); setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openReportDate(reportDate: string) { businessEntry.clearRoute(); setEditingReport(null); setInitialReportDate(reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openExistingReport(report: DailyReport) { businessEntry.clearRoute(); setEditingReport(report); setInitialReportDate(report.reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
 
@@ -211,6 +212,7 @@ export default function App() {
       {section === "admin" && <AdminPage attendance={scopedAttendance} reports={scopedReports} automations={scopedDailyReportAutomations} users={sortedUsers} categories={categories} holidayOverrides={holidayOverrides} products={scopedProducts} productObservations={scopedObservations} notify={notify} />}
       {section === "help" && <HelpPage />}
       {section === "updates" && <UpdatesPage />}
+      {canManageAccounts && <div hidden={section !== "meetingResume"}><MeetingResumePage allowed={canManageAccounts} profile={profile} reports={scopedReports} users={sortedUsers} monthlyReports={scopedWeeklyReports} /></div>}
       {section === "accounts" && canManageAccounts && <AccountManagementPage key={user.uid} />}
       {section === "settings" && <SettingsPage />}
       <Toast toast={toast} onClose={() => setToast(null)} />

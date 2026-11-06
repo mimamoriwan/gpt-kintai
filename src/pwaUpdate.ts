@@ -53,6 +53,15 @@ export function getAppUpdateState() {
   return state;
 }
 
+// The update dialog already asks the user to save/copy edits and explicitly
+// approve reopening this tab. Do not ask again for those same edits. This state
+// is local to the tab and resets on failure/timeout; pending work stays guarded.
+export function warnBeforeLeaving(event: BeforeUnloadEvent, hasUnsavedChanges: boolean, busy = false) {
+  if (!busy && (!hasUnsavedChanges || state.applying)) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
 export function subscribeToAppUpdate(listener: () => void) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };

@@ -32,6 +32,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Load the standalone document renderer only when this private feature exports.
+          if (/node_modules\/react-dom\/(?:server(?:\.|\/)|cjs\/react-dom-server)/.test(id)) return "meeting-resume-render";
           if (id.includes("node_modules/react") || id.includes("node_modules/scheduler")) return "react";
           if (id.includes("node_modules/firebase") || id.includes("node_modules/@firebase")) return "firebase";
           if (id.includes("node_modules/lucide-react")) return "icons";

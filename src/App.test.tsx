@@ -298,3 +298,34 @@ describe("notification entry after authentication", () => {
     expect(window.location.hash).toBe("#announcement=push-post");
   });
 });
+
+
+describe("private meeting resume navigation", () => {
+  it("requires server-confirmed owner capability even for another manager", async () => {
+    authState.profile.role = "employee_manager";
+    await renderApp();
+    expect(screen.queryByRole("button", { name: "会議レジュメ" })).not.toBeInTheDocument();
+  });
+  it.each<Role>(["employee", "president_viewer"])("hides the resume from %s", async role => {
+    authState.profile.role = role;
+    authState.canManageAccounts = true;
+    await renderApp();
+    expect(screen.queryByRole("button", { name: "会議レジュメ" })).not.toBeInTheDocument();
+  });
+  it("keeps an owner's edited draft when navigating away and back", async () => {
+    authState.profile.role = "employee_manager";
+    authState.canManageAccounts = true;
+    authState.reports = [{ id: "one", userId: "test-user", userName: "テスト利用者", reportDate: "2026-10-02", category: "営業", activities: "条件を確認", findings: "内容を整理", nextPlan: "次回協議", status: "submitted", isDemo: false }] as DailyReport[];
+    await renderApp();
+    const menu = within(screen.getByRole("complementary"));
+    fireEvent.click(menu.getByRole("button", { name: "会議レジュメ" }));
+    fireEvent.change(screen.getByLabelText("開始日"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("終了日"), { target: { value: "2026-10-28" } });
+    fireEvent.click(screen.getByRole("button", { name: "日報からたたき台を作成" }));
+    fireEvent.change(screen.getByLabelText("今回の要点（1行に1項目）"), { target: { value: "会議に向けた要点" } });
+    fireEvent.click(menu.getByRole("button", { name: "ホーム" }));
+    expect(screen.queryByRole("heading", { name: "会議レジュメ" })).not.toBeInTheDocument();
+    fireEvent.click(menu.getByRole("button", { name: "会議レジュメ" }));
+    expect(screen.getByLabelText("今回の要点（1行に1項目）")).toHaveValue("会議に向けた要点");
+  });
+});

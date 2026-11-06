@@ -21,6 +21,7 @@ import { acknowledgeDailyReportReplies } from "./reportReplies.js";
 export { registerAnnouncementPushDevice, unregisterAnnouncementPushDevice, testAnnouncementPushDevice, notifyNewAnnouncement } from "./announcementPushEndpoints.js";
 export { getBusinessWorkspace, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent } from "./business/index.js";
 export { getAccountManagement, setAccountRecovery, completeAccountRecovery, changeAccountEmail } from "./accountRecoveryEndpoints.js";
+export { generateMeetingResume } from "./meetingResume/index.js";
 
 initializeApp();
 setGlobalOptions({ region: "asia-northeast1", maxInstances: 5, memory: "256MiB" });

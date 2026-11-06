@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
+import { warnBeforeLeaving } from "../../pwaUpdate";
 import type { UserProfile } from "../../types";
 import { businessErrorCode, businessErrorMessage, businessFeatureAvailable, getBusinessWorkspace, setBusinessArchived } from "./api";
 import { BusinessArchiveDialog } from "./BusinessArchiveDialog";
@@ -62,7 +63,7 @@ function BusinessPageContent({ profile, onCreateAnnouncement, initialInitiativeI
     return () => { active.current = false; serial.current += 1; window.clearInterval(timer); document.removeEventListener("visibilitychange", visible); window.removeEventListener("focus", focus); };
   }, [refresh]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current) { event.preventDefault(); event.returnValue = ""; } };
+    const warn = (event: BeforeUnloadEvent) => warnBeforeLeaving(event, dirtyRef.current);
     // Shell navigation is a normal click. Capture before its handler changes the page.
     const guardNavigation = (event: MouseEvent) => {
       if (!dirtyRef.current || !(event.target instanceof Element)) return;

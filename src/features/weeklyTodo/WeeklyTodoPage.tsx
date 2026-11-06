@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, CheckCheck, CircleCheck, ChevronDown, ClipboardList, FilePlus2, Plus, RefreshCw, Save, Send } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { warnBeforeLeaving } from "../../pwaUpdate";
 import type { Locale, UserProfile } from "../../types";
 import { addDays, mondayOf } from "./calendar";
 import { addWeeklyTodoToDailyReport, getWeeklyTodoHistory, getWeeklyTodoWorkspace, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, todoError, translateWeeklyTodoContent } from "./api";
@@ -78,7 +79,7 @@ function WeeklyTodoContent({ profile, onOpenReport }: PageProps) {
     return () => { active.current = false; serial.current++; window.clearInterval(timer); window.removeEventListener("focus", focus); document.removeEventListener("visibilitychange", visibility); };
   }, [load]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (dirtyRef.current || busyRef.current) { event.preventDefault(); event.returnValue = ""; } };
+    const warn = (event: BeforeUnloadEvent) => warnBeforeLeaving(event, dirtyRef.current, busyRef.current);
     const guard = (event: MouseEvent) => {
       if (!(event.target instanceof Element) || event.target.closest(".weekly-todo-page")) return;
       const button = event.target.closest(".sidebar nav button:not(.active), .bottom-nav button:not(.active), .account-switch-button");

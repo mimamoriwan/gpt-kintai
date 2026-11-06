@@ -58,6 +58,7 @@ export function Shell({ section, onSection, instructions, users, notify, childre
     { id: "weeklyTodo", label: locale === "ja" ? "今週のTo Do" : "本周待办", icon: ClipboardPenLine, visible: true },
     { id: "business", label: locale === "ja" ? "会社の取り組み" : "公司重点工作", icon: CalendarRange, visible: businessFeatureAvailable },
     { id: "admin", label: t("admin"), icon: SlidersHorizontal, visible: canViewAdmin },
+    { id: "meetingResume", label: locale === "ja" ? "会議レジュメ" : "会议简报", icon: BookOpenCheck, visible: canManageAccounts },
     { id: "accounts", label: locale === "ja" ? "ログイン管理" : "登录管理", icon: Settings, visible: canManageAccounts },
     { id: "help", label: t("help"), icon: BookOpenCheck, visible: true },
     { id: "updates", label: t("updates"), icon: History, visible: true },

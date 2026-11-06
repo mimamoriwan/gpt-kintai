@@ -1,0 +1,25 @@
+import { resumeStats, type MeetingResume } from "./model";
+import type { Locale } from "../../types";
+import { AiVisuals, AiDecisions } from "./AiVisuals";
+
+export function ResumeDocument({ resume, locale }: { resume: MeetingResume; locale: Locale }) {
+  const l = (ja: string, zh: string) => locale === "ja" ? ja : zh;
+  const stats = resumeStats(resume);
+  return <article className="meeting-document" aria-label={l("会議レジュメのプレビュー", "会议简报预览")}>
+    <header className="mr-cover"><span>MONTHLY BUSINESS BRIEF</span><h1>{resume.title}</h1><p>{resume.from.replaceAll("-", ".")} — {resume.to.replaceAll("-", ".")}</p><div>{resume.subject}<span>{l("作成", "创建")} {resume.createdDate}</span></div></header>
+    <div className="mr-document-body">
+      {resume.ai ? <><p className="mr-ai-headline">{resume.ai.headline}</p><section className="mr-metrics mr-ai-metrics" aria-label={l("対象記録", "目标记录")}>{([ ["daily", l("日報", "日报")], ["business", l("取り組みの投稿・変更", "举措帖子与变更")], ["todo", l("To Do履歴の項目", "待办历史项目")] ] as const).map(([kind, label]) => <div key={kind}><b>{resume.sources.filter(s => s.kind === kind).length}</b><span>{label}</span></div>)}<div><b>{stats.themes.length}</b><span>{l("掲載テーマ", "刊载主题")}</span></div></section></> : <section className="mr-metrics" aria-label={l("対象記録", "目标记录")}><div><b>{stats.count}</b><span>{l("提出済み日報", "已提交日报")}</span></div><div><b>{stats.days}</b><span>{l("日報のある日数", "有日报的天数")}</span></div><div><b>{stats.themes.length}</b><span>{l("掲載テーマ", "刊载主题")}</span></div></section>}
+      <section className="mr-summary"><h2><small>01</small>{l("今回の要点", "本期要点")}</h2><Lines text={resume.summary} /></section>
+      {resume.ai ? <AiVisuals resume={resume} locale={locale} /> : <section className="mr-chart-grid"><div><h2><small>02</small>{l("分野別の活動", "各领域活动")}</h2><p className="mr-caption">{l("日報の分類別件数（業務量・成果の評価ではありません）", "日报分类数量（不表示工作量或成果评价）")}</p><div className="mr-bars">{stats.counts.map(([label, count]) => <div key={label} className="mr-bar-row"><span>{label}</span><div><i style={{ width: `${count / Math.max(1, stats.count) * 100}%` }} /></div><b>{count}</b></div>)}</div></div><div><h2><small>03</small>{l("期間中の動き", "期间动态")}</h2><p className="mr-caption">{l("開始日から7日ごとの日報件数（最終区間は終了日まで）", "从开始日起每7天的日报数（末段截至结束日）")}</p><div className="mr-bars">{stats.weeks.map(([date, count]) => <div key={date} className="mr-bar-row"><span>{date.slice(5).replace("-", "/")}〜</span><div><i style={{ width: `${count / Math.max(1, ...stats.weeks.map(w => w[1])) * 100}%` }} /></div><b>{count}</b></div>)}</div></div></section>}
+      <h2 className="mr-theme-heading"><small>04</small>{l("テーマ別の取り組み", "各主题工作")}</h2>
+      <div className={resume.ai ? "mr-theme-grid mr-ai-theme-grid" : "mr-theme-grid"}>{stats.themes.map((theme, i) => <section className="mr-theme" key={theme.id}><header><span>{String(i + 1).padStart(2, "0")}</span><h3>{theme.title}</h3></header>{theme.purpose && <div className="mr-purpose"><h4>{l("目的・位置づけ", "目的与定位")}</h4><Lines text={theme.purpose} /></div>}<div className={resume.ai ? "mr-story-step" : ""}><h4>{l("実施内容", "实施内容")}</h4><Lines text={theme.activities} /></div>{theme.findings && <div className={resume.ai ? "mr-story-step mr-story-outcome" : ""}><h4>{l("報告・進展", "报告与进展")}</h4><Lines text={theme.findings} /></div>}{theme.issues && <><h4>{l("課題", "课题")}</h4><Lines text={theme.issues} /></>}{theme.nextAction && <div className="mr-next"><h4>{l("次の対応", "后续行动")}</h4><Lines text={theme.nextAction} /></div>}<p className="mr-reference">{l("参照", "参考")}：{theme.references.join(" / ") || l("手動入力", "手动输入")}</p></section>)}</div>
+      <AiDecisions resume={resume} locale={locale} />
+      {resume.discussion && <section className="mr-discussion"><h2><small>05</small>{l("会議で確認・相談したいこと", "会议确认与讨论事项")}</h2><Lines text={resume.discussion} /></section>}
+      <footer className="mr-footer">{resume.ai ? l(`対象記録 ${stats.count} 件をAIで整理。根拠番号は作成時の記録に対応します。${resume.ai.reviewed ? "作成者が内容・図解を確認済み。" : "作成者の確認前の下書きです。"} 要点は対象記録全体、テーマ本文・図解は掲載選択を反映。進捗率は入力済みTo Doの値です。`, `AI整理了 ${stats.count} 项记录，依据编号对应创建时的记录。${resume.ai.reviewed ? "创建者已确认内容与图解。" : "本稿尚待创建者确认。"} 要点覆盖全部记录，主题正文和图解反映刊载选择。进度为已录入的待办值。`) : l("提出済み日報をもとに作成。掲載文章は作成者が確認・編集しています。図表は対象日報全件、テーマ本文は掲載選択した内容です。", "根据已提交日报编制，刊载文字由创建者确认编辑。图表统计所有目标日报，主题正文仅显示所选内容。")}</footer>
+      {resume.includeSources && <section className="mr-sources"><h2>{resume.ai ? l("参考資料：対象記録", "参考资料：目标记录") : l("参考資料：対象日報", "参考资料：目标日报")}</h2>{resume.sources.map((s, i) => <section key={`${s.id}-${i}`}><h3>{resume.ai ? `${s.id} · ` : ""}{s.date} · {s.name} · {s.category}</h3><h4>{l("実施内容", "实施内容")}</h4><p>{s.activities}</p>{s.findings && <><h4>{l("報告・所見", "报告与见解")}</h4><p>{s.findings}</p></>}{s.nextPlan && <><h4>{l("今後の予定", "后续计划")}</h4><p>{s.nextPlan}</p></>}</section>)}</section>}
+    </div>
+  </article>;
+}
+function Lines({ text, empty = "—" }: { text: string; empty?: string }) {
+  return text.trim() ? <ul>{text.split("\n").map(s => s.trim()).filter(Boolean).map((s, i) => <li key={i}>{s.replace(/^[-・●•]\s*/, "")}</li>)}</ul> : <p>{empty}</p>;
+}

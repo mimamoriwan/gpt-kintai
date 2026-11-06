@@ -70,6 +70,33 @@ describe("manual application updates", () => {
     expect(api.getAppUpdateState().applying).toBe(true);
   });
 
+  it("avoids a second unload confirmation only after activation consent, restoring it on timeout", async () => {
+    const { api, waiting } = await setup();
+    // Keep the same unsaved draft throughout; approval does not pretend to save it.
+    window.addEventListener("beforeunload", event => api.warnBeforeLeaving(event, true));
+    const leaving = () => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; };
+    expect(leaving()).toBe(true);
+    waiting(); expect(leaving()).toBe(true);
+    await api.applyAppUpdate(); expect(leaving()).toBe(false);
+    await vi.advanceTimersByTimeAsync(15_000); expect(leaving()).toBe(true);
+  });
+
+  it("restores the unsaved warning immediately if activation fails and permits an explicitly approved retry", async () => {
+    const { api, waiting } = await setup();
+    const leaving = () => { const event = new Event("beforeunload", { cancelable: true }); api.warnBeforeLeaving(event as BeforeUnloadEvent, true); return event.defaultPrevented; };
+    mock.update.mockRejectedValueOnce(new Error("offline")); waiting();
+    await api.applyAppUpdate(); expect(leaving()).toBe(true);
+    await api.applyAppUpdate(); expect(leaving()).toBe(false);
+  });
+
+  it("still protects running work during an approved update and never warns for an unchanged idle page", async () => {
+    const { api, waiting } = await setup();
+    const leaving = (dirty: boolean, busy: boolean) => { const event = new Event("beforeunload", { cancelable: true }); api.warnBeforeLeaving(event as BeforeUnloadEvent, dirty, busy); return event.defaultPrevented; };
+    expect(leaving(false, false)).toBe(false); expect(leaving(false, true)).toBe(true);
+    waiting(); await api.applyAppUpdate();
+    expect(leaving(true, false)).toBe(false); expect(leaving(true, true)).toBe(true); expect(leaving(false, true)).toBe(true);
+  });
+
   it("preserves the update entry and permits retry when activation rejects", async () => {
     const { api, waiting } = await setup();
     mock.update.mockRejectedValueOnce(new Error("activation unavailable"));
