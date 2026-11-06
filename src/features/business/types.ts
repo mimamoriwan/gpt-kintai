@@ -56,6 +56,33 @@ export interface BusinessDetail {
   nextUpdatesCursor: string | null; nextHistoryCursor: string | null;
 }
 export interface BusinessHistoryPage { history: BusinessHistory[]; nextCursor: string | null; fetchedAt: number }
+export interface BusinessRetrospectiveInput { from: string; to: string; assigneeId?: string }
+export type RetrospectiveSnapshot =
+  | { state: "active"; completed: number; total: number; status: BusinessStatus }
+  | { state: "not-created" | "archived" | "unknown" };
+export interface RetrospectiveInitiative {
+  id: string;
+  name: string;
+  sourceLocale: Locale;
+  assigneeIds: string[];
+  before: RetrospectiveSnapshot;
+  after: RetrospectiveSnapshot;
+  hasActivity: boolean;
+  completed: { id: string; name: string }[];
+  remaining: { id: string; name: string }[];
+}
+export interface BusinessRetrospective {
+  from: string;
+  to: string;
+  assigneeId: string;
+  members: BusinessMember[];
+  initiatives: RetrospectiveInitiative[];
+  reports: Pick<BusinessUpdate, "id" | "initiativeId" | "authorId" | "authorName" | "body" | "sourceLocale" | "createdAt">[];
+  completedMilestones: number;
+  completedWeekly: number;
+  weeklyHistoryIncomplete: boolean;
+  remainingMilestones: number;
+}
 export interface BusinessThemeInput {
   id: string; expectedVersion: number; name: string; description: string;
   sourceLocale: Locale; order: number; referenceLinks: string[];

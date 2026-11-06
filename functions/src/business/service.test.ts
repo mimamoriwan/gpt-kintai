@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
 import { contentVersion, type Row } from "./domain.js";
 import { createBusinessService } from "./service.js";
+import { documentId } from "../weeklyTodo/domain.js";
 
 // Transaction fake applies writes only after the callback succeeds, checks the
 // Firestore read-before-write constraint, and serializes concurrent mutations.
@@ -25,7 +26,8 @@ class MemoryDatabase {
     const operation = this.queue.then(async () => {
       const changes: [string, Row][] = [];
       const tx = {
-        get: async (ref: any) => { if (changes.length) throw new Error("Read after write"); return this.snapshot(ref.path); },
+        get: async (ref: any) => { if (changes.length) throw new Error("Read after write"); return ref.get(); },
+        getAll: async (...refs: any[]) => Promise.all(refs.map(ref => ref.get())),
         set: (ref: any, row: Row) => { changes.push([ref.path, row]); },
         create: (ref: any, row: Row) => { if (this.rows.has(ref.path)) throw new Error("Exists"); changes.push([ref.path, row]); },
         update: (ref: any, row: Row) => { changes.push([ref.path, { ...this.rows.get(ref.path), ...row }]); }
@@ -39,18 +41,24 @@ class MemoryDatabase {
   }
 }
 class Query {
-  filters: [string, unknown][] = [];
+  filters: [string, string, unknown][] = [];
   orders: [string, string][] = [];
   count = Infinity;
   after?: unknown[];
   constructor(private db: MemoryDatabase, private name: string) {}
   doc(id?: string) { return this.db.doc(`${this.name}/${id ?? `auto-${++this.db.sequence}`}`); }
-  where(field: string, _operator: string, value: unknown) { this.filters.push([field, value]); return this; }
+  where(field: string, operator: string, value: unknown) { this.filters.push([field, operator, value]); return this; }
   orderBy(field: any, direction: string) { this.orders.push([typeof field === "string" ? field : "id", direction]); return this; }
   startAfter(...args: unknown[]) { this.after = args; return this; }
   limit(count: number) { this.count = count; return this; }
   async get() {
-    let entries = [...this.db.rows].filter(([path, row]) => path.startsWith(`${this.name}/`) && this.filters.every(([field, value]) => row[field] === value));
+    let entries = [...this.db.rows].filter(([path, row]) => path.startsWith(`${this.name}/`) && this.filters.every(([field, operator, value]) => {
+      const actual = field.split(".").reduce((source, part) => source?.[part], row);
+      if (operator === ">=") return actual >= Number(value);
+      if (operator === "<") return actual < Number(value);
+      if (operator === "in") return Array.isArray(value) && value.includes(actual);
+      return actual === value;
+    }));
     entries.sort(([pathA, a], [pathB, b]) => {
       for (const [field, direction] of this.orders) {
         const av = field === "id" ? pathA.split("/").at(-1)! : a[field];
@@ -74,6 +82,7 @@ let disabled: Set<string>;
 let translate: ReturnType<typeof vi.fn>;
 let getAccount: ReturnType<typeof vi.fn>;
 let service: ReturnType<typeof createBusinessService>;
+let clock: number;
 async function seed() {
   await service.saveBusinessSettings(auth(), { expectedVersion: 0, enabled: true, memberIds });
   await service.saveBusinessTheme(auth(), themeInput);
@@ -84,11 +93,71 @@ function histories() { return [...db.rows].filter(([path]) => path.startsWith("b
 function translateInput() { return { kind: "initiative", id: "initiative", targetLocale: "zh-CN", expectedContentVersion: initiative().contentVersion }; }
 
 beforeEach(() => {
-  db = new MemoryDatabase(); featureEnabled = true; disabled = new Set();
+  db = new MemoryDatabase(); featureEnabled = true; disabled = new Set(); clock = 1000;
   for (const [uid, role] of [["yasushi", "employee_manager"], ["president", "president_viewer"], ["fang", "employee"], ["newbie", "employee"]]) db.rows.set(`users/${uid}`, { active: true, role, displayName: uid });
   translate = vi.fn(async (fields: Record<string, string>) => Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, value ? `译:${value}` : ""])));
   getAccount = vi.fn(async (uid: string) => ({ disabled: disabled.has(uid) }));
-  service = createBusinessService({ db: db as unknown as Firestore, getAccount, featureEnabled: () => featureEnabled, now: () => 1000 + db.writes.length, translate });
+  service = createBusinessService({ db: db as unknown as Firestore, getAccount, featureEnabled: () => featureEnabled, now: () => clock + db.writes.length, translate });
+});
+
+describe("period retrospective", () => {
+  const jst = (date: string) => Date.parse(date + "T00:00:00+09:00");
+  const period = { from: "2026-10-01", to: "2026-10-31" };
+  it("restores end-of-period state even after later edits and uses Japan date boundaries", async () => {
+    clock = jst("2026-09-30"); await seed();
+    clock = jst("2026-10-01");
+    await service.setBusinessMilestoneCompletion(auth("fang"), { initiativeId: "initiative", milestoneId: "m1", expectedVersion: 1, completed: true });
+    clock = jst("2026-11-01");
+    await service.setBusinessMilestoneCompletion(auth("fang"), { initiativeId: "initiative", milestoneId: "m1", expectedVersion: 2, completed: false });
+    const result = await service.getBusinessRetrospective(auth("fang"), period);
+    expect(result.initiatives[0]).toMatchObject({
+      before: { state: "active", completed: 0, total: 1 },
+      after: { state: "active", completed: 1, total: 1 },
+      completed: [{ id: "m1" }], remaining: []
+    });
+    expect(result).toMatchObject({ completedMilestones: 1, remainingMilestones: 0 });
+    expect((await service.getBusinessRetrospective(auth(), { ...period, assigneeId: "president" })).initiatives).toEqual([]);
+  });
+
+  it("counts shared weekly transitions once and excludes reopens, private work and other scopes", async () => {
+    clock = jst("2026-09-30"); await seed();
+    const weekStart = "2026-09-28";
+    function revision(userId: string, scopeId: string, revision: number, date: string, items: [string, number][]) {
+      const key = documentId(scopeId, userId, weekStart);
+      db.rows.set(`weeklyTodoHistory/${key}_${String(revision).padStart(8, "0")}`, {
+        userId, scopeId, weekStart, kind: "share",
+        snapshot: { at: jst(date), revision, items: items.map(([id, progress]) => ({ id, progress })) }
+      });
+    }
+    revision("fang", "production", 1, "2026-09-30", [["old", 100], ["new", 25]]);
+    revision("fang", "production", 2, "2026-10-01", [["old", 100], ["new", 100], ["reopened", 100]]);
+    revision("fang", "production", 3, "2026-10-10", [["old", 100], ["new", 100], ["reopened", 50]]);
+    revision("fang", "demo:other", 1, "2026-10-01", [["demo", 100]]);
+    revision("newbie", "production", 1, "2026-10-01", [["outsider", 100]]);
+    db.rows.set("weeklyTodoWeeks/private", { scopeId: "production", draft: { items: [{ id: "private", progress: 100 }] } });
+    db.rows.set("businessUpdates/report", { id: "report", initiativeId: "initiative", scopeId: "company", createdAt: jst("2026-10-01"), body: "完了報告", weeklyTodo: { action: "complete" } });
+    db.rows.set("businessUpdates/revoked", { id: "revoked", initiativeId: "initiative", scopeId: "company", createdAt: jst("2026-10-01"), body: "取り消し済み", weeklyTodo: { action: "complete" } });
+    db.rows.set("businessUpdates/reopen", { id: "reopen", initiativeId: "initiative", scopeId: "company", createdAt: jst("2026-10-02"), weeklyTodo: { action: "reopen", previousReportId: "revoked" } });
+    clock = jst("2026-11-01");
+    const result = await service.getBusinessRetrospective(auth("fang"), { ...period, assigneeId: "fang" });
+    expect(result).toMatchObject({ completedWeekly: 1, weeklyHistoryIncomplete: false, completedMilestones: 0, remainingMilestones: 1, reports: [{ id: "report", body: "完了報告" }] });
+    db.rows.delete(`weeklyTodoHistory/${documentId("production", "fang", weekStart)}_00000001`);
+    await expect(service.getBusinessRetrospective(auth("fang"), period)).resolves.toMatchObject({ completedWeekly: 0, weeklyHistoryIncomplete: true });
+    await expect(service.getBusinessRetrospective(auth("newbie"), period)).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(service.getBusinessRetrospective(auth("fang"), { from: "2024-01-01", to: period.to })).rejects.toMatchObject({ code: "invalid-argument" });
+  });
+
+  it("keeps archival and creation at their historical boundaries", async () => {
+    clock = jst("2026-10-05"); await seed();
+    clock = jst("2026-10-20");
+    await service.setBusinessArchived(auth(), { kind: "theme", id: "theme", expectedVersion: 1, archived: true });
+    clock = jst("2026-11-02");
+    await service.setBusinessArchived(auth(), { kind: "theme", id: "theme", expectedVersion: 2, archived: false });
+    await service.saveBusinessInitiative(auth(), { ...initiativeInput, id: "november" });
+    const report = await service.getBusinessRetrospective(auth(), period);
+    expect(report.initiatives).toHaveLength(1);
+    expect(report.initiatives[0]).toMatchObject({ before: { state: "not-created" }, after: { state: "archived" }, remaining: [] });
+  });
 });
 
 describe("business sharing and current account authorization", () => {

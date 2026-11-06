@@ -37,6 +37,7 @@ vi.mock("./auth", () => ({
 
 vi.mock("./features/business/api", () => ({ businessFeatureAvailable: true }));
 vi.mock("./features/business/BusinessPage", () => ({ default: () => null }));
+vi.mock("./features/business/BusinessRetrospectivePage", () => ({ BusinessRetrospectivePage: () => <h2>期間集計の内容</h2> }));
 vi.mock("./components/AppUpdateNotice", () => ({ AppUpdateNotice: () => null }));
 vi.mock("./services/accountManagement", () => ({ getAccountManagement: vi.fn(async () => ({ canManage: authState.canManageAccounts })) }));
 vi.mock("./pages/AccountManagementPage", () => ({ AccountManagementPage: () => <h1>ログイン管理画面の内容</h1> }));
@@ -142,6 +143,9 @@ describe("App Check recovery integration", () => {
     expect(buttons.every(button => button.getAttribute("aria-current") === "page")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "全体計画" }));
     expect(screen.queryByRole("heading", { name: "週間予定の内容" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "実績・振り返り" }));
+    expect(screen.getByRole("heading", { name: "期間集計の内容" })).toBeInTheDocument();
+    expect(buttons.every(button => button.getAttribute("aria-current") === "page")).toBe(true);
   });
   it("replaces raw App Check notification text with a persistent notice inside the app header", async () => {
     authState.recipientError = "AppCheck: Requests throttled due to previous 403 error. Attempts allowed again after 17h:02m:23s (appCheck/throttled).";

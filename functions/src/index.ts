@@ -19,7 +19,7 @@ import { completePasswordSetup, requireWorkAuth } from "./passwordChange.js";
 export { getWeeklyTodoWorkspace, getWeeklyTodoHistory, saveWeeklyTodoDraft, shareWeeklyTodo, shareWeeklyTodoReview, translateWeeklyTodoContent, addWeeklyTodoToDailyReport, addBusinessMilestonesToWeeklyTodo, reportLinkedWeeklyTodoCompletion } from "./weeklyTodo/index.js";
 import { acknowledgeDailyReportReplies } from "./reportReplies.js";
 export { registerAnnouncementPushDevice, unregisterAnnouncementPushDevice, testAnnouncementPushDevice, notifyNewAnnouncement } from "./announcementPushEndpoints.js";
-export { getBusinessWorkspace, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent } from "./business/index.js";
+export { getBusinessWorkspace, getBusinessRetrospective, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent } from "./business/index.js";
 export { getAccountManagement, setAccountRecovery, completeAccountRecovery, changeAccountEmail } from "./accountRecoveryEndpoints.js";
 export { generateMeetingResume } from "./meetingResume/index.js";
 

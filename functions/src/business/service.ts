@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { FieldPath, type Firestore, type Transaction } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { archiveInput, assertAssigned, assertEditable, assertVersion, collections, completionInput, contentVersion, detailInput, historyInput, initiativeInput, isManager, mergeMilestones, publicRow, scopeOf, settingsInput, statusInput, themeInput, translationFields, translationInput, updateInput, type Kind, type Milestone, type Row } from "./domain.js";
+import { collectRetrospective, retrospectivePeriod } from "./retrospective.js";
+import { scopeOf as weeklyScopeOf } from "../weeklyTodo/domain.js";
 
 type Auth = { uid: string } | undefined;
 type Context = { uid: string; profile: Row; scopeId: string; settings: Row; canManage: boolean; bootstrap: boolean };
@@ -95,6 +97,23 @@ export function createBusinessService(deps: BusinessDependencies) {
     const current = await authorize(auth, undefined, "workspace");
     if (current.scopeId !== ctx.scopeId || current.settings.version !== settings.version || current.canManage !== ctx.canManage) throw new HttpsError("aborted", "共有設定が変更されました。再取得してください。");
     return { settings, canManage: ctx.canManage, members, memberCandidates, themes, initiatives, fetchedAt: now() };
+  }
+  async function getBusinessRetrospective(auth: Auth, data: unknown) {
+    const period = retrospectivePeriod(data, now());
+    const ctx = await authorize(auth);
+    const members = await memberRows(ctx);
+    if (period.assigneeId && !members.some(member => member.uid === period.assigneeId && member.active)) {
+      throw new HttpsError("invalid-argument", "共有メンバーから担当者を指定してください。");
+    }
+    const result = await db.runTransaction(
+      tx => collectRetrospective(tx, db, { business: ctx.scopeId, weekly: weeklyScopeOf(ctx.profile) }, members.map(member => member.uid), period),
+      { readOnly: true }
+    );
+    const current = await authorize(auth);
+    if (current.scopeId !== ctx.scopeId || current.settings.version !== ctx.settings.version) {
+      throw new HttpsError("aborted", "共有設定が変更されました。再取得してください。");
+    }
+    return { ...result, from: period.from, to: period.to, assigneeId: period.assigneeId ?? "", members };
   }
   function cursor(value?: string): [number, string] | undefined {
     if (!value) return undefined;
@@ -304,5 +323,5 @@ export function createBusinessService(deps: BusinessDependencies) {
     });
     return { kind: input.kind, id: input.id, targetLocale: input.targetLocale, contentVersion: hash, fields: result, cached: Boolean(cachedFields) };
   }
-  return { getBusinessWorkspace, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent };
+  return { getBusinessWorkspace, getBusinessRetrospective, getBusinessInitiativeDetail, getBusinessHistory, saveBusinessTheme, saveBusinessInitiative, setBusinessArchived, postBusinessUpdate, setBusinessStatus, setBusinessMilestoneCompletion, saveBusinessSettings, translateBusinessContent };
 }

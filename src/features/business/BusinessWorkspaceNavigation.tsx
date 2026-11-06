@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useI18n } from "../../i18n";
 import "./workspace.css";
 
-type View = "business" | "weeklyTodo";
+type View = "business" | "weeklyTodo" | "businessReview";
 
 export function BusinessWorkspaceNavigation({ view, onView, children }: {
   view: View;
@@ -22,6 +22,9 @@ export function BusinessWorkspaceNavigation({ view, onView, children }: {
       </button>
       <button type="button" data-business-work-tab aria-pressed={view === "weeklyTodo"} onClick={() => { if (view !== "weeklyTodo") onView("weeklyTodo"); }}>
         {ja ? "今週やること" : "本周要做的事"}
+      </button>
+      <button type="button" data-business-work-tab aria-pressed={view === "businessReview"} onClick={() => { if (view !== "businessReview") onView("businessReview"); }}>
+        {ja ? "実績・振り返り" : "成果与回顾"}
       </button>
     </div>
     {children}

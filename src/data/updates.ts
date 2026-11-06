@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-06-business-retrospective",
+    updatedAt: "2026-11-06T19:29:55.178+09:00",
+    kind: "feature",
+    content: {
+      ja: {
+        title: "会社の取り組みを期間で振り返る",
+        areas: ["会社の取り組み", "実績・振り返り"],
+        changes: ["期間と担当者を指定し、各取り組みの開始・終了時点の達成状況を比較できます。", "期間内に完了した達成項目と共有済みの週間作業を別々に集計し、完了報告と期末の残件を表示します。"],
+        benefits: ["元の取り組みを開いて、いつ何が進み、何が残っているかを確認できます。"]
+      },
+      "zh-CN": {
+        title: "按日期范围回顾公司重点工作",
+        areas: ["公司重点工作", "成果与回顾"],
+        changes: ["可选择日期范围和负责人，对比各项工作在期初和期末的达成情况。", "分别统计期间内完成的达成项和已共享的每周任务，并显示完成报告和期末剩余事项。"],
+        benefits: ["可打开原工作，了解期间取得的进展和仍待完成的事项。"]
+      }
+    }
+  },
+  {
     id: "2026-11-06-business-workspace-stage2",
     updatedAt: "2026-11-06T18:48:25.455+09:00",
     kind: "improvement",

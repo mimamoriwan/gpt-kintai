@@ -664,4 +664,4 @@ export interface ProductImageAnalysis extends ProductFacts {
   janValid: boolean;
 }
 
-export type NavSection = "meetingResume" | "home" | "report" | "records" | "products" | "workflow" | "weeklyTodo" | "business" | "admin" | "help" | "updates" | "settings" | "accounts";
+export type NavSection = "meetingResume" | "home" | "report" | "records" | "products" | "workflow" | "weeklyTodo" | "business" | "businessReview" | "admin" | "help" | "updates" | "settings" | "accounts";

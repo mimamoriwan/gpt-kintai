@@ -1,0 +1,76 @@
+.business-retrospective { display: grid; gap: 12px; min-width: 0; }
+.business-retrospective p, .business-retrospective h2 { margin: 0; }
+.retrospective-filters, .retrospective-panel, .retrospective-metric {
+  border: 1px solid var(--line, #dce4ed);
+  border-radius: 12px;
+  background: var(--card, #fff);
+}
+.retrospective-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+}
+.retrospective-filters label { display: grid; gap: 4px; min-width: 0; font-weight: 600; }
+.retrospective-filters :is(input, select) { min-width: 0; width: 100%; min-height: 42px; }
+.retrospective-filters button { min-height: 42px; }
+.retrospective-period, .retrospective-note { color: var(--muted, #586579); font-size: 13px; }
+.retrospective-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.retrospective-metric {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  color: var(--metric-ink);
+  background: var(--metric-surface);
+}
+.retrospective-metric.done { --metric-ink: #16613e; --metric-surface: #eef9f1; }
+.retrospective-metric.weekly { --metric-ink: #114aaf; --metric-surface: #edf4ff; }
+.retrospective-metric.remaining { --metric-ink: #835204; --metric-surface: #fff7e7; }
+.retrospective-metric svg { flex-shrink: 0; }
+.retrospective-metric h2 { font-size: 14px; }
+.retrospective-metric strong { font-size: 28px; }
+.retrospective-panel { min-width: 0; padding: 14px; overflow-wrap: anywhere; }
+.retrospective-panel h2 { margin-bottom: 9px; font-size: 17px; }
+.retrospective-table-wrap { overflow-x: auto; }
+.retrospective-panel table { width: 100%; min-width: 560px; border-collapse: collapse; text-align: left; font-size: 13px; }
+.retrospective-panel th, .retrospective-panel td { padding: 9px; border-bottom: 1px solid var(--line, #dce4ed); vertical-align: top; }
+.retrospective-panel thead th { background: var(--blue-soft, #edf4ff); }
+.retrospective-panel tbody td:nth-child(2), .retrospective-panel tbody td:nth-child(3) { width: 18%; }
+.retrospective-panel tbody tr:last-child > * { border-bottom: 0; }
+.retrospective-panel small { display: block; color: var(--muted, #586579); font-size: 12px; }
+.retrospective-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue-dark, #114aaf);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.retrospective-completed { color: #16613e; font-weight: 700; }
+.retrospective-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.retrospective-panel ul { display: grid; gap: 7px; list-style: none; padding: 0; margin: 0; }
+.retrospective-panel li { border: 1px solid var(--line, #dce4ed); border-radius: 8px; padding: 9px; }
+.retrospective-panel li p { margin-top: 4px; }
+.retrospective-report-body { white-space: pre-wrap; }
+@media (max-width: 720px) {
+  .retrospective-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .retrospective-details { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .retrospective-metrics { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .retrospective-metric { padding: 7px 10px; }
+  .retrospective-metric > div { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 6px; }
+  .retrospective-metric strong { font-size: 22px; white-space: nowrap; }
+}
+@media (prefers-color-scheme: dark) {
+  .retrospective-metric.done { --metric-ink: #b2edca; --metric-surface: #173a2c; }
+  .retrospective-metric.weekly { --metric-ink: #c9deff; --metric-surface: #233b59; }
+  .retrospective-metric.remaining { --metric-ink: #ffe0a3; --metric-surface: #503a1a; }
+  .retrospective-completed { color: #b2edca; }
+}

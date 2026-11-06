@@ -3,7 +3,7 @@ import { auth, functions, prepareCallableSecurityContext } from "../../firebase"
 import { invokeWithVerifiedSecurityContext } from "../../lib/callable";
 import type { Locale } from "../../types";
 import type {
-  BusinessDetail, BusinessHistoryPage, BusinessInitiativeInput, BusinessStatus, BusinessThemeInput,
+  BusinessDetail, BusinessHistoryPage, BusinessInitiativeInput, BusinessRetrospective, BusinessRetrospectiveInput, BusinessStatus, BusinessThemeInput,
   BusinessTranslation, BusinessTranslationInput, BusinessWorkspace
 } from "./types";
 
@@ -22,6 +22,7 @@ async function callBusiness<Input, Output>(name: string, input: Input): Promise<
 }
 
 export const getBusinessWorkspace = () => callBusiness<Record<string, never>, BusinessWorkspace>("getBusinessWorkspace", {});
+export const getBusinessRetrospective = (input: BusinessRetrospectiveInput) => callBusiness<BusinessRetrospectiveInput, BusinessRetrospective>("getBusinessRetrospective", input);
 export const getBusinessInitiativeDetail = (input: { initiativeId: string; updatesCursor?: string; historyCursor?: string }) => callBusiness<typeof input, BusinessDetail>("getBusinessInitiativeDetail", input);
 export const getBusinessHistory = (input: { kind: "theme" | "settings"; id: string; cursor?: string }) => callBusiness<typeof input, BusinessHistoryPage>("getBusinessHistory", input);
 export const saveBusinessTheme = (input: BusinessThemeInput) => callBusiness<typeof input, { id: string; version: number }>("saveBusinessTheme", input);

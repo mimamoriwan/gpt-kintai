@@ -56,6 +56,7 @@ function handler(method: Method) {
 }
 
 export const getBusinessWorkspace = onCall(callableOptions, handler("getBusinessWorkspace"));
+export const getBusinessRetrospective = onCall(callableOptions, handler("getBusinessRetrospective"));
 export const getBusinessInitiativeDetail = onCall(callableOptions, handler("getBusinessInitiativeDetail"));
 export const getBusinessHistory = onCall(callableOptions, handler("getBusinessHistory"));
 export const saveBusinessTheme = onCall(callableOptions, handler("saveBusinessTheme"));

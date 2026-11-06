@@ -49,9 +49,9 @@ export function Shell({ section, onSection, instructions, users, notify, childre
     }
   }, [announcementDraft]);
   const canViewAdmin = profile?.role === "employee_manager" || profile?.role === "president_viewer";
-  const showingWeeklyTab = businessFeatureAvailable && section === "weeklyTodo";
-  const activeSection = showingWeeklyTab ? "business" : section;
-  const openSection = (next: NavSection) => { if (!showingWeeklyTab || next !== "business") onSection(next); };
+  const showingBusinessTab = businessFeatureAvailable && (section === "weeklyTodo" || section === "businessReview");
+  const activeSection = showingBusinessTab ? "business" : section;
+  const openSection = (next: NavSection) => { if (!showingBusinessTab || next !== "business") onSection(next); };
   const items: { id: NavSection; label: string; icon: typeof Home; visible: boolean }[] = [
     { id: "home", label: t("home"), icon: Home, visible: true },
     { id: "report", label: t("dailyReport"), icon: ClipboardPenLine, visible: profile?.role !== "president_viewer" },
