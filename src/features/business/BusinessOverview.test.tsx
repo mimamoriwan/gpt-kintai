@@ -8,7 +8,8 @@ import { BusinessPage } from "./BusinessPage";
 
 const api = vi.hoisted(() => ({ getBusinessWorkspace: vi.fn(), getBusinessInitiativeDetail: vi.fn(), getBusinessHistory: vi.fn(), translateBusinessContent: vi.fn(), setBusinessArchived: vi.fn() }));
 const getWeeklyTodoWorkspace = vi.hoisted(() => vi.fn());
-vi.mock("../../i18n", () => ({ useI18n: () => ({ locale: "ja" }) }));
+const language = vi.hoisted(() => ({ locale: "ja" }));
+vi.mock("../../i18n", () => ({ useI18n: () => ({ locale: language.locale }) }));
 vi.mock("./api", () => ({ ...api, businessFeatureAvailable: true, businessErrorCode: () => "unknown", businessErrorMessage: () => "通信を完了できませんでした。" }));
 vi.mock("../weeklyTodo/api", () => ({ getWeeklyTodoWorkspace, todoError: () => "通信を完了できませんでした。" }));
 const profile: UserProfile = { uid: "member", displayName: "担当者", email: "member@example.test", role: "employee", locale: "ja", active: true };
@@ -19,6 +20,7 @@ function fixture(): BusinessWorkspace {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  language.locale = "ja";
   api.getBusinessWorkspace.mockResolvedValue(fixture());
   api.getBusinessInitiativeDetail.mockResolvedValue({ updates: [], history: [], nextUpdatesCursor: null, nextHistoryCursor: null, fetchedAt: 1000 });
   api.getBusinessHistory.mockResolvedValue({ history: [], nextCursor: null, fetchedAt: 1000 });
@@ -27,6 +29,34 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("company initiative overview", () => {
+  it.each([
+    { locale: "ja", listLabel: "一覧・近況", nextLabel: "次の未完了", countLabel: "7件中3件の達成項目が完了" },
+    { locale: "zh-CN", listLabel: "列表与动态", nextLabel: "下一项未完成", countLabel: "7个达成项已完成3个" }
+  ] as const)("shows the ordered next milestone with the count and latest report in $locale", async ({ locale, listLabel, nextLabel, countLabel }) => {
+    language.locale = locale;
+    const workspace = fixture();
+    workspace.themes[0].sourceLocale = locale;
+    const row = workspace.initiatives[1];
+    row.sourceLocale = locale;
+    row.milestones = Array.from({ length: 8 }, (_, order) => ({
+      id: `item-${order}`, name: `項目${order}`, order, archived: order === 0, completed: order >= 1 && order <= 3,
+      updatedAt: 0, updatedBy: profile.uid
+    })).reverse();
+    row.latestUpdate = { id: "report", initiativeId: row.id, body: "確認待ち", sourceLocale: locale, contentVersion: "report", authorId: profile.uid, authorName: profile.displayName, createdAt: 4 };
+    api.getBusinessWorkspace.mockResolvedValue(workspace);
+    render(<BusinessPage profile={profile} onCreateAnnouncement={vi.fn()} />);
+
+    const timelineRow = (await screen.findByRole("button", { name: row.name })).closest("tr")!;
+    expect(within(timelineRow).getByLabelText(countLabel)).toHaveTextContent("3/7");
+    expect(timelineRow).toHaveTextContent(`${nextLabel} · 項目4`);
+    expect(timelineRow).not.toHaveTextContent(/[●○]/);
+    fireEvent.click(screen.getByRole("button", { name: listLabel }));
+    const listRow = screen.getByRole("button", { name: row.name }).closest("article")!;
+    expect(within(listRow).getByLabelText(countLabel)).toHaveTextContent("3/7");
+    expect(listRow).toHaveTextContent(`${nextLabel} · 項目4`);
+    expect(within(listRow).getByText("確認待ち")).toBeVisible();
+  });
+
   it("shows milestone completion on the schedule bar while retaining its status color", async () => {
     const workspace = fixture();
     const row = workspace.initiatives.find(item => item.id === "work-a")!;

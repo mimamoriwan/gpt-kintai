@@ -9,6 +9,7 @@ export const status = z.enum(["not_started", "in_progress", "on_hold", "complete
 const name = z.string().trim().min(1).max(200);
 const referenceLinks = z.array(z.string().url().max(2000).refine((value) => /^https?:\/\//i.test(value))).max(10);
 const order = z.number().int().min(0).max(10000);
+const maxActiveMilestones = 12;
 const commonInput = { id: identifier, expectedVersion: version, name, description: z.string().max(10000), sourceLocale: locale, referenceLinks };
 export const themeInput = z.object({ ...commonInput, order }).strict();
 const month = z.string().refine((value) => value === "" || /^(?:19|20|21)\d{2}-(?:0[1-9]|1[0-2])$/.test(value));
@@ -19,8 +20,8 @@ export const initiativeInput = z.object({
   milestones: z.array(milestoneInput).max(100)
 }).strict().superRefine((value, ctx) => {
   const activeMilestones = value.milestones.filter((item) => !item.archived).length;
-  if (activeMilestones < 1 || activeMilestones > 3) {
-    ctx.addIssue({ code: "custom", message: "有効な節目は1〜3件にしてください。", path: ["milestones"] });
+  if (activeMilestones < 1 || activeMilestones > maxActiveMilestones) {
+    ctx.addIssue({ code: "custom", message: `有効な節目は1〜${maxActiveMilestones}件にしてください。`, path: ["milestones"] });
   }
   if (Boolean(value.plannedStartMonth) !== Boolean(value.plannedEndMonth) || value.plannedStartMonth > value.plannedEndMonth) {
     ctx.addIssue({ code: "custom", message: "予定開始・終了月を確認してください。", path: ["plannedEndMonth"] });

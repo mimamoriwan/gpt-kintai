@@ -244,21 +244,23 @@ describe("business transactions, conflict handling and history", () => {
     expect(results.find((item) => item.status === "rejected")).toMatchObject({ reason: { code: "aborted" } });
     expect(db.rows.get("businessThemes/theme")!.name).toBe("ヤスシ変更");
   });
-  it("saves three active milestones with archived history but rejects zero or four active milestones", async () => {
+  it("expands an existing initiative to twelve active milestones and rejects zero or thirteen", async () => {
+    await service.setBusinessMilestoneCompletion(auth("fang"), { initiativeId: "initiative", milestoneId: "m1", expectedVersion: 1, completed: true });
     const milestones = [
       ...initiativeInput.milestones,
-      { id: "m2", name: "準備", order: 1, archived: false },
-      { id: "m3", name: "確認", order: 2, archived: false },
-      { id: "old", name: "過去の節目", order: 3, archived: true }
+      ...Array.from({ length: 11 }, (_, index) => ({ id: `m${index + 2}`, name: `確認${index + 2}`, order: index + 1, archived: false })),
+      { id: "old", name: "過去の節目", order: 12, archived: true }
     ];
-    await service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 1, milestones });
+    await service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 2, milestones });
     expect(initiative().milestones).toMatchObject(milestones);
-    expect(initiative().version).toBe(2);
+    expect(initiative().milestones[0]).toMatchObject({ id: "m1", completed: true });
+    expect(initiative().milestones[11]).toMatchObject({ id: "m12", completed: false });
+    expect(initiative().version).toBe(3);
 
-    await expect(service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 2, milestones: milestones.map((item) => ({ ...item, archived: true })) })).rejects.toThrow(/有効な節目/);
-    await expect(service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 2, milestones: milestones.map((item) => ({ ...item, archived: false })) })).rejects.toThrow(/有効な節目/);
+    await expect(service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 3, milestones: milestones.map((item) => ({ ...item, archived: true })) })).rejects.toThrow(/有効な節目/);
+    await expect(service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 3, milestones: milestones.map((item) => ({ ...item, archived: false })) })).rejects.toThrow(/有効な節目/);
     expect(initiative().milestones).toMatchObject(milestones);
-    expect(initiative().version).toBe(2);
+    expect(initiative().version).toBe(3);
   });
   it("explicit milestone values are idempotent, preserve content version and do not complete the initiative", async () => {
     const initialHash = initiative().contentVersion;

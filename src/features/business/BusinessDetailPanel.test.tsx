@@ -18,24 +18,36 @@ const update = (id: string, createdAt: number, initiativeId = initiative.id): Bu
 beforeEach(() => { vi.resetAllMocks(); });
 afterEach(cleanup);
 
-it("selects unfinished achievements for this week without marking them complete", async () => {
+it("folds completed milestones and adds at most three unfinished achievements per request", async () => {
   api.getBusinessInitiativeDetail.mockResolvedValue({ updates: [], history: [], nextUpdatesCursor: null, nextHistoryCursor: null, fetchedAt: 4000 });
-  addToTodo.mockResolvedValue({ itemIds: ["linked-task"], addedCount: 1 });
+  addToTodo.mockResolvedValueOnce({ itemIds: ["linked-task", "linked-task-2", "linked-task-3"], addedCount: 3 })
+    .mockResolvedValueOnce({ itemIds: ["linked-task-4"], addedCount: 1 });
   const onOpenWeeklyTodo = vi.fn();
   render(<BusinessTranslationProvider uid={profile.uid}><BusinessDetailPanel row={{ ...initiative, milestones: [
     { id: "done", name: "完了済み", order: 0, archived: false, completed: true, updatedAt: 0, updatedBy: "" },
-    { id: "open", name: "審査条件を確定", order: 1, archived: false, completed: false, updatedAt: 0, updatedBy: "" }
+    ...Array.from({ length: 4 }, (_, index) => ({ id: `open-${index + 1}`, name: `確認事項${index + 1}`, order: index + 1, archived: false, completed: false, updatedAt: 0, updatedBy: "" }))
   ] }} themes={[]} members={[profile]} profile={profile} canManage={false} fetchedAt={4000} refresh={vi.fn()} onEdit={vi.fn()} onArchive={vi.fn()} onCreateAnnouncement={vi.fn()} onDirty={vi.fn()} onAccessError={vi.fn()} onOpenWeeklyTodo={onOpenWeeklyTodo} /></BusinessTranslationProvider>);
   const add = screen.getByRole("button", { name: "選んだ項目を今週に追加" });
   expect(add).toBeDisabled();
+  const completed = screen.getByText("完了済みの達成項目（1件）");
+  expect(completed.closest("details")).not.toHaveAttribute("open");
+  fireEvent.click(completed);
+  expect(screen.getByRole("checkbox", { name: "完了済み" })).toBeChecked();
   expect(screen.queryByRole("checkbox", { name: "今週取り組む: 完了済み" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("checkbox", { name: "今週取り組む: 審査条件を確定" }));
+  const pick = (index: number) => screen.getByRole("checkbox", { name: `今週取り組む: 確認事項${index}` });
+  [1, 2, 3].forEach(index => fireEvent.click(pick(index)));
+  expect(pick(4)).toBeDisabled();
+  expect(screen.getByText(/3件選択中/)).toBeVisible();
   fireEvent.click(add);
-  expect(await screen.findByText("今週のTo Doの下書きに1件追加しました。")).toBeVisible();
-  expect(addToTodo).toHaveBeenCalledWith(expect.objectContaining({ initiativeId: initiative.id, expectedInitiativeVersion: 1, milestoneIds: ["open"] }));
-  expect(api.setBusinessMilestoneCompletion).not.toHaveBeenCalled();
+  expect(await screen.findByText("今週のTo Doの下書きに3件追加しました。")).toBeVisible();
+  expect(addToTodo).toHaveBeenNthCalledWith(1, expect.objectContaining({ initiativeId: initiative.id, expectedInitiativeVersion: 1, milestoneIds: ["open-1", "open-2", "open-3"] }));
   fireEvent.click(screen.getByRole("button", { name: "今週のTo Doを開く" }));
   expect(onOpenWeeklyTodo).toHaveBeenCalledWith("linked-task");
+  fireEvent.click(pick(4));
+  fireEvent.click(add);
+  expect(await screen.findByText("今週のTo Doの下書きに1件追加しました。")).toBeVisible();
+  expect(addToTodo).toHaveBeenNthCalledWith(2, expect.objectContaining({ milestoneIds: ["open-4"] }));
+  expect(api.setBusinessMilestoneCompletion).not.toHaveBeenCalled();
 });
 
 describe("BusinessDetailPanel latest update", () => {

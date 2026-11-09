@@ -4,12 +4,16 @@ import { contentVersion, initiativeInput, mergeMilestones, scopeOf } from "./dom
 const step = (index: number, archived = false) => ({ id: `s${index}`, name: `節目${index}`, order: index, archived });
 const input = { id: "work", expectedVersion: 0, name: "販売基盤", description: "説明", sourceLocale: "ja", referenceLinks: [], themeId: "theme", assigneeIds: [], status: "not_started", plannedStartMonth: "", plannedEndMonth: "", targetMemo: "9月末", milestones: [step(1)] };
 describe("business input and content revisions", () => {
-  it("requires 1–3 active milestones while retaining archived entries within a 100-entry total limit", () => {
+  it("requires 1–12 active milestones while retaining archived entries within a 100-entry total limit", () => {
     expect(() => initiativeInput.parse({ ...input, milestones: [] })).toThrow(/有効な節目/);
     expect(() => initiativeInput.parse({ ...input, milestones: [step(1, true)] })).toThrow(/有効な節目/);
     expect(initiativeInput.parse({ ...input, milestones: [step(1)] }).milestones).toHaveLength(1);
     expect(initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3)] }).milestones).toHaveLength(3);
-    expect(() => initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3), step(4)] })).toThrow(/有効な節目/);
+    expect(initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3), step(4)] }).milestones).toHaveLength(4);
+    const twelve = Array.from({ length: 12 }, (_, index) => step(index + 1));
+    expect(initiativeInput.parse({ ...input, milestones: twelve }).milestones).toHaveLength(12);
+    expect(() => initiativeInput.parse({ ...input, milestones: [...twelve, step(13)] })).toThrow(/有効な節目/);
+    expect(initiativeInput.parse({ ...input, milestones: [...twelve, step(13, true)] }).milestones).toHaveLength(13);
     expect(initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3), step(4, true)] }).milestones).toHaveLength(4);
     expect(initiativeInput.parse({ ...input, milestones: Array.from({ length: 100 }, (_, index) => step(index, index > 0)) }).milestones).toHaveLength(100);
     expect(() => initiativeInput.parse({ ...input, milestones: Array.from({ length: 101 }, (_, index) => step(index, index > 0)) })).toThrow();

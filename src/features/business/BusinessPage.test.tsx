@@ -67,35 +67,36 @@ describe("BusinessPage", () => {
     expect(payload).toMatchObject({ name: "倉庫を決める", expectedVersion: 1, milestones: [{ id: "step-a", name: "見積を確認", order: 0, archived: false }] });
     expect(Object.keys(payload).sort()).toEqual(["id", "expectedVersion", "themeId", "name", "description", "sourceLocale", "referenceLinks", "assigneeIds", "status", "plannedStartMonth", "plannedEndMonth", "targetMemo", "milestones"].sort());
   });
-  it("lets a manager rename a milestone and add only three active milestones", async () => {
+  it.each([4, 12])("lets a manager rename a milestone and save %i active milestones", async total => {
     render(<BusinessPage profile={manager} onCreateAnnouncement={vi.fn()} />);
     await openDetail();
     fireEvent.click(screen.getByRole("button", { name: "取り組みを編集" }));
-    const editor = screen.getByRole("dialog", { name: "取り組みを編集" });
-    fireEvent.change(within(editor).getByLabelText("達成項目 1"), { target: { value: "見積を比較" } });
-    const add = within(editor).getByRole("button", { name: "達成項目を追加" });
-    fireEvent.click(add);
-    fireEvent.change(within(editor).getByLabelText("達成項目 2"), { target: { value: "候補を絞る" } });
-    fireEvent.click(add);
-    fireEvent.change(within(editor).getByLabelText("達成項目 3"), { target: { value: "倉庫を決める" } });
-    expect(add).toBeDisabled();
-    fireEvent.click(within(editor).getByRole("button", { name: "保存" }));
+    const editor = within(screen.getByRole("dialog", { name: "取り組みを編集" }));
+    fireEvent.change(editor.getByLabelText("達成項目 1"), { target: { value: "見積を比較" } });
+    const add = editor.getByRole("button", { name: "達成項目を追加" });
+    for (let index = 2; index <= total; index += 1) {
+      expect(add).toBeEnabled();
+      fireEvent.click(add);
+      fireEvent.change(editor.getByLabelText(`達成項目 ${index}`), { target: { value: `確認事項${index}` } });
+    }
+    if (total === 12) expect(add).toBeDisabled();
+    expect(editor.getByRole("group", { name: `達成項目（1〜12件・現在${total}件）` })).toBeInTheDocument();
+    fireEvent.click(editor.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(api.saveBusinessInitiative).toHaveBeenCalledTimes(1));
     const milestones = api.saveBusinessInitiative.mock.calls[0][0].milestones;
-    expect(milestones).toEqual([
-      { id: "step-a", name: "見積を比較", order: 0, archived: false },
-      { id: expect.any(String), name: "候補を絞る", order: 1, archived: false },
-      { id: expect.any(String), name: "倉庫を決める", order: 2, archived: false }
-    ]);
-    expect(new Set(milestones.map((milestone: { id: string }) => milestone.id)).size).toBe(3);
+    expect(milestones).toHaveLength(total);
+    expect(milestones[0]).toEqual({ id: "step-a", name: "見積を比較", order: 0, archived: false });
+    expect(milestones[total - 1]).toEqual({ id: expect.any(String), name: `確認事項${total}`, order: total - 1, archived: false });
+    expect(new Set(milestones.map((milestone: { id: string }) => milestone.id)).size).toBe(total);
   });
-  it("archives a milestone to free a slot and restores it only within the three-step limit", async () => {
+  it("archives a milestone to free a slot and restores it only within the twelve-item limit", async () => {
     const workspace = fixture();
     const first = workspace.initiatives[0].milestones[0];
     workspace.initiatives[0].milestones.push(
       { ...first, id: "step-b", name: "候補を絞る", order: 1 },
-      { ...first, id: "step-c", name: "倉庫を決める", order: 2 }
+      { ...first, id: "step-c", name: "倉庫を決める", order: 2 },
+      ...Array.from({ length: 9 }, (_, index) => ({ ...first, id: `step-${index + 4}`, name: `確認事項${index + 4}`, order: index + 3 }))
     );
     api.getBusinessWorkspace.mockResolvedValue(workspace);
     render(<BusinessPage profile={manager} onCreateAnnouncement={vi.fn()} />);
@@ -113,7 +114,7 @@ describe("BusinessPage", () => {
     expect(within(archivedRow("見積を確認")).getByRole("button", { name: "達成項目を復元" })).toBeEnabled();
     expect(add).toBeEnabled();
     fireEvent.click(add);
-    fireEvent.change(within(editor).getByLabelText("達成項目 3"), { target: { value: "契約を確認" } });
+    fireEvent.change(within(editor).getByLabelText("達成項目 12"), { target: { value: "契約を確認" } });
     expect(within(archivedRow("見積を確認")).getByRole("button", { name: "達成項目を復元" })).toBeDisabled();
     fireEvent.click(within(milestoneRow("候補を絞る")).getByRole("button", { name: "達成項目を外す" }));
     fireEvent.click(within(archivedRow("見積を確認")).getByRole("button", { name: "達成項目を復元" }));
@@ -121,7 +122,7 @@ describe("BusinessPage", () => {
 
     await waitFor(() => expect(api.saveBusinessInitiative).toHaveBeenCalledTimes(1));
     const milestones = api.saveBusinessInitiative.mock.calls[0][0].milestones;
-    expect(milestones.filter((milestone: { archived: boolean }) => !milestone.archived)).toHaveLength(3);
+    expect(milestones.filter((milestone: { archived: boolean }) => !milestone.archived)).toHaveLength(12);
     expect(milestones).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "step-a", archived: false }),
       expect.objectContaining({ id: "step-b", archived: true }),
@@ -255,16 +256,16 @@ describe("BusinessPage", () => {
     await screen.findByText(/他の方が追加した達成項目も保持します/); fireEvent.click(screen.getByRole("button", { name: "最新の版を基準に、この入力を保存" }));
     await waitFor(() => expect(api.saveBusinessInitiative).toHaveBeenCalledTimes(2)); expect(api.saveBusinessInitiative.mock.calls[1][0]).toMatchObject({ expectedVersion: 2, description: "自分の説明", milestones: [{ id: "step-a" }, { id: "other-step", name: "社長の追加達成項目" }] });
   });
-  it("lets a manager reconcile four active milestones after a concurrent addition without losing IDs", async () => {
+  it("lets a manager reconcile thirteen active milestones after a concurrent addition without losing IDs", async () => {
     render(<BusinessPage profile={manager} onCreateAnnouncement={vi.fn()} />);
     await openDetail();
     fireEvent.click(screen.getByRole("button", { name: "取り組みを編集" }));
     const editor = screen.getByRole("dialog", { name: "取り組みを編集" });
     const add = within(editor).getByRole("button", { name: "達成項目を追加" });
-    fireEvent.click(add);
-    fireEvent.change(within(editor).getByLabelText("達成項目 2"), { target: { value: "自分の達成項目A" } });
-    fireEvent.click(add);
-    fireEvent.change(within(editor).getByLabelText("達成項目 3"), { target: { value: "自分の達成項目B" } });
+    for (let index = 2; index <= 12; index += 1) {
+      fireEvent.click(add);
+      fireEvent.change(within(editor).getByLabelText(`達成項目 ${index}`), { target: { value: `自分の達成項目${index}` } });
+    }
 
     const latest = fixture();
     latest.initiatives[0].version = 2;
@@ -278,19 +279,22 @@ describe("BusinessPage", () => {
     const localIds = api.saveBusinessInitiative.mock.calls[0][0].milestones.map((step: { id: string }) => step.id);
 
     fireEvent.click(await within(editor).findByRole("button", { name: "追加分を取り込む" }));
-    expect(within(editor).getByRole("group", { name: /現在4件/ })).toBeInTheDocument();
+    expect(within(editor).getByRole("group", { name: /現在13件/ })).toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole("button", { name: "最新の版を基準に、この入力を保存" }));
+    expect(within(editor).getByText("達成項目は1〜12件にしてください。")).toBeInTheDocument();
+    expect(api.saveBusinessInitiative).toHaveBeenCalledTimes(1);
     const remoteRow = within(editor).getByDisplayValue("社長の追加達成項目").closest(".business-milestone-editor") as HTMLElement;
     fireEvent.click(within(remoteRow).getByRole("button", { name: "達成項目を外す" }));
-    expect(within(editor).getByRole("group", { name: /現在3件/ })).toBeInTheDocument();
+    expect(within(editor).getByRole("group", { name: /現在12件/ })).toBeInTheDocument();
     fireEvent.click(within(editor).getByRole("button", { name: "最新の版を基準に、この入力を保存" }));
 
     await waitFor(() => expect(api.saveBusinessInitiative).toHaveBeenCalledTimes(2));
     const saved = api.saveBusinessInitiative.mock.calls[1][0];
     expect(saved.expectedVersion).toBe(2);
-    expect(saved.milestones).toHaveLength(4);
+    expect(saved.milestones).toHaveLength(13);
     expect(new Set(saved.milestones.map((step: { id: string }) => step.id))).toEqual(new Set([...localIds, "other-step"]));
-    expect(saved.milestones.filter((step: { archived: boolean }) => !step.archived)).toHaveLength(3);
-    expect(saved.milestones.map((step: { order: number }) => step.order).sort((a: number, b: number) => a - b)).toEqual([0, 1, 2, 3]);
+    expect(saved.milestones.filter((step: { archived: boolean }) => !step.archived)).toHaveLength(12);
+    expect(saved.milestones.map((step: { order: number }) => step.order).sort((a: number, b: number) => a - b)).toEqual(Array.from({ length: 13 }, (_, index) => index));
     expect(saved.milestones).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "other-step", name: "社長の追加達成項目", archived: true })
     ]));

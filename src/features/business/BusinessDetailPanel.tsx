@@ -6,10 +6,12 @@ import { mondayOf } from "../weeklyTodo/calendar";
 import { businessErrorMessage, getBusinessInitiativeDetail, postBusinessUpdate, setBusinessMilestoneCompletion, setBusinessStatus } from "./api";
 import { BusinessComparison } from "./BusinessForms";
 import { businessCopy, dateLabel, memberNames, newBusinessId, safeBusinessLink, statuses, statusLabel } from "./presentation";
-import { milestoneCount } from "./timeline";
-import type { BusinessAnnouncementDraft, BusinessDetail, BusinessInitiative, BusinessMember, BusinessTheme } from "./types";
+import { orderedActiveMilestones } from "./timeline";
+import type { BusinessAnnouncementDraft, BusinessDetail, BusinessInitiative, BusinessMember, BusinessMilestone, BusinessTheme } from "./types";
 import { TranslatedText } from "./useBusinessTranslation";
 import "./BusinessDetailPanel.css";
+
+const weeklyTodoBatchLimit = 3;
 
 export function BusinessDetailPanel({ row, theme, themes, members, profile, canManage, fetchedAt, refresh, onEdit, onArchive, onCreateAnnouncement, onOpenWeeklyTodo, onDirty, onAccessError, suspended = false, layout = "timeline" }: {
   suspended?: boolean; layout?: "timeline" | "list"; row: BusinessInitiative; theme?: BusinessTheme; themes: BusinessTheme[]; members: BusinessMember[]; profile: UserProfile; canManage: boolean; fetchedAt: number;
@@ -29,8 +31,17 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
   const [addedItem, setAddedItem] = useState("");
   const canUpdate = !row.archived && !theme?.archived && (canManage || row.assigneeIds.includes(profile.uid));
   const canAddTodo = canUpdate && Boolean(onOpenWeeklyTodo) && row.status !== "completed";
-  const milestones = [...row.milestones].filter(item => !item.archived).sort((a, b) => a.order - b.order);
-  const selectedIds = milestones.filter(item => !item.completed && selectedMilestones.includes(item.id)).map(item => item.id);
+  const milestones = orderedActiveMilestones(row);
+  const pendingMilestones = milestones.filter(item => !item.completed);
+  const completedMilestones = milestones.filter(item => item.completed);
+  const selectedIds = pendingMilestones.filter(item => selectedMilestones.includes(item.id)).map(item => item.id);
+  const atWeeklyTodoLimit = selectedIds.length >= weeklyTodoBatchLimit;
+  useEffect(() => {
+    setSelectedMilestones(selected => {
+      const remaining = selected.filter(id => row.milestones.some(item => item.id === id && !item.archived && !item.completed));
+      return remaining.length === selected.length ? selected : remaining;
+    });
+  }, [row.milestones]);
   useEffect(() => { active.current = true; return () => { active.current = false; request.current += 1; }; }, []);
   const fetchDetail = useCallback(async (cursor?: { updatesCursor?: string; historyCursor?: string }) => {
     const sequence = ++request.current; setLoading(true);
@@ -80,7 +91,7 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
     if (success && active.current) { setBody(""); setPostId(newBusinessId()); onDirty(false); }
   }
   async function addToWeeklyTodo() {
-    if (busyRef.current || !canAddTodo || !selectedIds.length) return;
+    if (busyRef.current || !canAddTodo || !selectedIds.length || selectedIds.length > weeklyTodoBatchLimit) return;
     busyRef.current = true; setBusy(true); setError(""); setMessage(""); setAddedItem("");
     try {
       const result = await addBusinessMilestonesToWeeklyTodo({
@@ -101,7 +112,24 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
       if (active.current) setBusy(false);
     }
   }
-  const count = milestoneCount(row);
+  function renderMilestone(m: BusinessMilestone) {
+    const selected = selectedIds.includes(m.id);
+    return <div key={m.id} className={`business-milestone-row${selected ? " selected" : ""}`}>
+      <label className="business-check business-milestone">
+        <input type="checkbox" disabled={!canUpdate || busy} checked={m.completed} onChange={event => {
+          const completed = event.target.checked;
+          void act(() => setBusinessMilestoneCompletion({ initiativeId: row.id, milestoneId: m.id, expectedVersion: row.version, completed }), c("達成項目を更新しました。", "达成项已更新。"));
+        }} />
+        <span><TranslatedText kind="initiative" resource={row} field={`milestone:${m.id}`} text={m.name} /><small>{m.updatedAt > 0 && `${memberNames([m.updatedBy], members, locale)} · ${dateLabel(m.updatedAt, locale)}`}</small></span>
+      </label>
+      {canAddTodo && !m.completed && <label className="business-check business-milestone-pick">
+        <input type="checkbox" disabled={busy || (atWeeklyTodoLimit && !selected)} checked={selected} aria-label={c(`今週取り組む: ${m.name}`, `本周开展：${m.name}`)} onChange={event => {
+          setSelectedMilestones(event.target.checked ? [...selectedIds, m.id] : selectedIds.filter(id => id !== m.id));
+        }} />
+        <span>{c("今週取り組む", "本周开展")}</span>
+      </label>}
+    </div>;
+  }
   const latestUpdate = [...(detail?.updates || []), ...(row.latestUpdate ? [row.latestUpdate] : [])]
     .filter(update => update.initiativeId === row.id && typeof update.body === "string" && Number.isFinite(update.createdAt))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
@@ -118,15 +146,18 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
     </div>
     {(error || loadError) && <div className="business-error" role="alert"><p>{error || loadError}</p><button type="button" disabled={loading} onClick={() => void fetchDetail()}>{c("詳細を再取得", "重新获取详情")}</button></div>}{message && <p role="status" className="business-success">{message}</p>}
     <div className="business-detail-overview">
-    <section className="business-detail-milestones"><div className="business-detail-milestone-heading"><h3>{c("達成項目", "达成项")} <span className="business-detail-count">{count.total ? c(`${count.completed}/${count.total}件完了`, `已完成${count.completed}/${count.total}项`) : c("未設定", "未设置")}</span></h3>{canManage && !row.archived && !theme?.archived && <button type="button" disabled={busy} onClick={() => onEdit("milestones")}>{c("達成項目を編集", "编辑达成项")}</button>}</div>
-      {count.total > 0 && <progress className="business-detail-progress" max={count.total} value={count.completed} aria-label={c("達成項目の完了数", "达成项完成数量")} />}
-      {milestones.map(m => <div key={m.id} className={`business-milestone-row${selectedIds.includes(m.id) ? " selected" : ""}`}>
-        <label className="business-check business-milestone"><input type="checkbox" disabled={!canUpdate || busy} checked={m.completed} onChange={e => { const completed = e.target.checked; void act(() => setBusinessMilestoneCompletion({ initiativeId: row.id, milestoneId: m.id, expectedVersion: row.version, completed }), c("達成項目を更新しました。", "达成项已更新。")); }} /><span><TranslatedText kind="initiative" resource={row} field={`milestone:${m.id}`} text={m.name} /><small>{m.updatedAt > 0 && `${memberNames([m.updatedBy], members, locale)} · ${dateLabel(m.updatedAt, locale)}`}</small></span></label>
-        {canAddTodo && !m.completed && <label className="business-check business-milestone-pick"><input type="checkbox" disabled={busy} checked={selectedIds.includes(m.id)} aria-label={c(`今週取り組む: ${m.name}`, `本周开展：${m.name}`)} onChange={e => { const checked = e.target.checked; setSelectedMilestones(ids => checked ? [...ids, m.id] : ids.filter(id => id !== m.id)); }} /><span>{c("今週取り組む", "本周开展")}</span></label>}
-      </div>)}
-      <p className="business-detail-note business-muted">{c("この取り組みで完了させること。数字は完了した項目の数です。", "此工作需要完成的事项。数字表示已完成的项数。")}</p>
-      {canAddTodo && milestones.some(m => !m.completed) && <div className="business-actions"><button type="button" className="business-primary" disabled={busy || !selectedIds.length} onClick={() => void addToWeeklyTodo()}>{c("選んだ項目を今週に追加", "将所选达成项添加到本周")}</button></div>}
+    <section className="business-detail-milestones"><div className="business-detail-milestone-heading"><h3>{c("達成項目", "达成项")} <span className="business-detail-count">{milestones.length ? c(`${completedMilestones.length}/${milestones.length}件完了`, `已完成${completedMilestones.length}/${milestones.length}项`) : c("未設定", "未设置")}</span></h3>{canManage && !row.archived && !theme?.archived && <button type="button" disabled={busy} onClick={() => onEdit("milestones")}>{c("達成項目を編集", "编辑达成项")}</button>}</div>
+      {milestones.length > 0 && <progress className="business-detail-progress" max={milestones.length} value={completedMilestones.length} aria-label={c("達成項目の完了数", "达成项完成数量")} />}
+      {canAddTodo && pendingMilestones.length > 0 && <p className="business-detail-note business-muted">
+        {c(`今週のTo Doに1回で${weeklyTodoBatchLimit}件まで追加できます（${selectedIds.length}件選択中）。`, `每次可向本周待办添加最多${weeklyTodoBatchLimit}项（已选${selectedIds.length}项）。`)}
+      </p>}
+      {pendingMilestones.map(renderMilestone)}
+      {canAddTodo && pendingMilestones.length > 0 && <div className="business-actions"><button type="button" className="business-primary" disabled={busy || !selectedIds.length} onClick={() => void addToWeeklyTodo()}>{c("選んだ項目を今週に追加", "将所选达成项添加到本周")}</button></div>}
       {addedItem && onOpenWeeklyTodo && <div className="business-actions business-added-todo"><button type="button" disabled={busy} onClick={() => onOpenWeeklyTodo(addedItem)}>{c("今週のTo Doを開く", "打开本周待办")}</button></div>}
+      {completedMilestones.length > 0 && <details className="business-detail-disclosure business-completed-milestones">
+        <summary>{c(`完了済みの達成項目（${completedMilestones.length}件）`, `已完成的达成项（${completedMilestones.length}项）`)}</summary>
+        {completedMilestones.map(renderMilestone)}
+      </details>}
     </section>
     <section className="business-detail-latest"><h3>{c("最新の近況", "最新动态")}</h3>
       {latestUpdate && <article className="business-update business-latest-update">{updateLabel(latestUpdate) && <strong className="business-linked-report-label">{updateLabel(latestUpdate)}</strong>}<p><TranslatedText kind="update" resource={latestUpdate} field="body" text={latestUpdate.body} /></p><div className="business-muted">{latestUpdate.authorName} · {dateLabel(latestUpdate.createdAt, locale)}</div></article>}

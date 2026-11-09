@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Circle, CircleCheck, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { businessCopy } from "./presentation";
+import { orderedActiveMilestones } from "./timeline";
 import type { BusinessInitiative } from "./types";
 import { TranslatedText } from "./useBusinessTranslation";
 
@@ -21,7 +22,7 @@ export function BusinessMilestonePreview({ row, anchor, id, pinned, close, cance
   const panel = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number }>();
-  const milestones = row.milestones.filter(item => !item.archived).sort((a, b) => a.order - b.order);
+  const milestones = orderedActiveMilestones(row);
   const completed = milestones.filter(item => item.completed).length;
 
   useLayoutEffect(() => {
@@ -81,7 +82,7 @@ export function BusinessMilestonePreview({ row, anchor, id, pinned, close, cance
       <span className="business-preview-count">{c(`${completed}/${milestones.length}件完了`, `已完成 ${completed}/${milestones.length} 项`)}</span>
       <button type="button" className="business-preview-close" aria-label={c("達成項目を閉じる", "关闭达成项")} onClick={() => { anchor.focus({ preventScroll: true }); close(); }}><X size={16} aria-hidden="true" /></button>
     </div>
-    {milestones.length > 0 ? <ul>{milestones.map(item => <li key={item.id}>
+    {milestones.length > 0 ? <ul tabIndex={pinned ? 0 : undefined}>{milestones.map(item => <li key={item.id}>
       <span className={item.completed ? "business-preview-done" : "business-muted"} role="img" aria-label={item.completed ? c("完了", "已完成") : c("未完了", "未完成")}>{item.completed ? <CircleCheck size={16} aria-hidden="true" /> : <Circle size={16} aria-hidden="true" />}</span>
       <TranslatedText kind="initiative" resource={row} field={`milestone:${item.id}`} text={item.name} compact />
     </li>)}</ul> : <p className="business-muted">{c("達成項目は未設定です。", "尚未设置达成项。")}</p>}

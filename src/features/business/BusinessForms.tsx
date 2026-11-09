@@ -7,6 +7,9 @@ import { businessCopy, memberNames, newBusinessId, safeBusinessLink, statuses, s
 import type { BusinessInitiative, BusinessInitiativeInput, BusinessMember, BusinessSettings, BusinessTheme, BusinessThemeInput } from "./types";
 
 type Common = { onSaved: (id?: string) => void; onCancel: () => void; onDirty: (dirty: boolean) => void; refresh: () => Promise<void>; onAccessError: (error: unknown) => void };
+const maxActiveMilestones = 12;
+const maxStoredMilestones = 100;
+
 function LocaleInput({ value, onChange }: { value: Locale; onChange: (value: Locale) => void }) {
   const { locale } = useI18n();
   return <label>{locale === "ja" ? "原文の言語" : "原文语言"}<select value={value} onChange={e => onChange(e.target.value as Locale)}><option value="ja">日本語</option><option value="zh-CN">中文</option></select></label>;
@@ -142,14 +145,25 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
   const e = useEditor(initial, saveBusinessInitiative, props);
   const [links, setLinks] = useState(initial.referenceLinks.join("\n"));
   const milestoneSection = useRef<HTMLFieldSetElement>(null);
+  const storageLimitMessage = c(
+    `保管中を含めて${maxStoredMilestones}件まで保存できます。上限を超えた場合は未保存の追加項目を減らしてください。`,
+    `包含已归档项在内最多可保存${maxStoredMilestones}项。超过上限时，请减少尚未保存的新增项。`
+  );
   useEffect(() => {
     if (!props.focusMilestones) return;
     const frame = requestAnimationFrame(() => milestoneSection.current?.scrollIntoView?.({ block: "start" }));
     return () => cancelAnimationFrame(frame);
   }, [props.focusMilestones]);
   function valid(draft = e.draft) {
+    if (draft.milestones.length > maxStoredMilestones) {
+      e.setError(storageLimitMessage);
+      return false;
+    }
     const active = draft.milestones.filter(m => !m.archived);
-    if (active.length < 1 || active.length > 3) { e.setError(c("達成項目は1〜3件にしてください。", "请将达成项设为1至3项。")); return false; }
+    if (active.length < 1 || active.length > maxActiveMilestones) {
+      e.setError(c(`達成項目は1〜${maxActiveMilestones}件にしてください。`, `请将达成项设为1至${maxActiveMilestones}项。`));
+      return false;
+    }
     if (active.some(m => !m.name.trim())) { e.setError(c("達成項目の名前を入力してください。", "请填写达成项名称。")); return false; }
     const { plannedStartMonth: start, plannedEndMonth: end } = e.draft;
     if ((start || end) && (!/^\d{4}-(0[1-9]|1[0-2])$/.test(start) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(end) || start > end)) { e.setError(c("予定開始月と終了月を両方設定し、開始月以降を終了月にしてください。", "请同时填写计划开始月和结束月，且结束月不能早于开始月。")); return false; }
@@ -159,7 +173,8 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
   function submit(event: FormEvent) { event.preventDefault(); if (valid(e.draft)) void e.submit(); }
   const activeMilestones = e.draft.milestones.filter(m => !m.archived);
   const archivedMilestones = e.draft.milestones.filter(m => m.archived);
-  function milestoneChange(id: string, patch: Partial<BusinessInitiativeInput["milestones"][number]>) { if (patch.archived === false && activeMilestones.length >= 3) return; e.change({ milestones: e.draft.milestones.map(m => m.id === id ? { ...m, ...patch } : m) }); }
+  const atMilestoneLimit = activeMilestones.length >= maxActiveMilestones;
+  function milestoneChange(id: string, patch: Partial<BusinessInitiativeInput["milestones"][number]>) { if (patch.archived === false && atMilestoneLimit) return; e.change({ milestones: e.draft.milestones.map(m => m.id === id ? { ...m, ...patch } : m) }); }
   function removeMilestone(id: string) {
     if (props.initiative?.milestones.some(m => m.id === id) || props.latest?.milestones.some(m => m.id === id)) milestoneChange(id, { archived: true });
     else e.change({ milestones: e.draft.milestones.filter(m => m.id !== id) });
@@ -183,16 +198,16 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
     <label>{c("状態", "状态")}<select value={e.draft.status} onChange={v => e.change({ status: v.target.value as BusinessInitiative["status"] })}>{statuses.map(status => <option key={status} value={status}>{statusLabel(status, locale)}</option>)}</select></label>
     <div className="business-form-grid"><label>{c("予定開始月", "计划开始月")}<input type="month" min="1900-01" max="2199-12" value={e.draft.plannedStartMonth} onChange={v => e.change({ plannedStartMonth: v.target.value })} /></label><label>{c("予定終了月", "计划结束月")}<input type="month" min="1900-01" max="2199-12" value={e.draft.plannedEndMonth} onChange={v => e.change({ plannedEndMonth: v.target.value })} /></label></div>
     <label>{c("目標時期のメモ", "目标时间备注")}<input maxLength={1000} placeholder={c("9月末、先方回答後など", "例如9月底、收到回复后")} value={e.draft.targetMemo} onChange={v => e.change({ targetMemo: v.target.value })} /></label>
-    <fieldset ref={milestoneSection}><legend>{c(`達成項目（1〜3件・現在${activeMilestones.length}件）`, `达成项（1至3项，当前${activeMilestones.length}项）`)}</legend>
+    <fieldset ref={milestoneSection}><legend>{c(`達成項目（1〜${maxActiveMilestones}件・現在${activeMilestones.length}件）`, `达成项（1至${maxActiveMilestones}项，当前${activeMilestones.length}项）`)}</legend>
       <p className="business-muted">{c("達成項目の名前と順番を変更できます。完了のチェックと取り組みの状態は詳細画面で別々に更新します。", "可修改达成项名称和顺序。完成勾选与工作状态可在详情中分别更新。")}</p>
       {activeMilestones.map((m, index) => <div className="business-milestone-editor" key={m.id}><label>{c("達成項目", "达成项")} {index + 1}<input required maxLength={200} value={m.name} onChange={v => milestoneChange(m.id, { name: v.target.value })} /></label><div className="business-actions"><button type="button" disabled={index === 0} aria-label={c(`${m.name || "達成項目"}を上へ`, `${m.name || "达成项"}上移`)} onClick={() => move(m.id, -1)}>↑</button><button type="button" disabled={index === activeMilestones.length - 1} aria-label={c(`${m.name || "達成項目"}を下へ`, `${m.name || "达成项"}下移`)} onClick={() => move(m.id, 1)}>↓</button><button type="button" onClick={() => removeMilestone(m.id)}>{props.initiative?.milestones.some(saved => saved.id === m.id) || props.latest?.milestones.some(saved => saved.id === m.id) ? c("達成項目を外す", "移除达成项") : c("達成項目を削除", "删除达成项")}</button></div></div>)}
-      <button type="button" disabled={activeMilestones.length >= 3 || e.draft.milestones.length >= 100} onClick={() => e.change({ milestones: [...e.draft.milestones, { id: newBusinessId(), name: "", order: Math.min(10000, Math.max(-1, ...e.draft.milestones.map(m => m.order)) + 1), archived: false }] })}>{c("達成項目を追加", "添加达成项")}</button>
-      {e.draft.milestones.length >= 100 && <p className="business-muted">{c("保管中を含め100件に達したため、新しい達成項目は追加できません。", "包含已归档项在内已达到100项，无法再添加新达成项。")}</p>}
-      {archivedMilestones.length > 0 && <details className="business-archived-milestones"><summary>{c(`保管中の達成項目（${archivedMilestones.length}件）`, `已归档达成项（${archivedMilestones.length}项）`)}</summary><p className="business-muted">{c("外した達成項目は履歴として保管します。3件以内なら復元できます。", "移除的达成项会保留在历史记录中，未满3项时可恢复。")}</p>{archivedMilestones.map(m => <div className="business-milestone-editor" key={m.id}><span>{m.name || c("名称未入力の達成項目", "未命名达成项")}</span><button type="button" disabled={activeMilestones.length >= 3} onClick={() => milestoneChange(m.id, { archived: false })}>{c("達成項目を復元", "恢复达成项")}</button></div>)}</details>}
+      <button type="button" disabled={atMilestoneLimit || e.draft.milestones.length >= maxStoredMilestones} onClick={() => e.change({ milestones: [...e.draft.milestones, { id: newBusinessId(), name: "", order: Math.min(10000, Math.max(-1, ...e.draft.milestones.map(m => m.order)) + 1), archived: false }] })}>{c("達成項目を追加", "添加达成项")}</button>
+      {e.draft.milestones.length >= maxStoredMilestones && <p className="business-muted">{storageLimitMessage}</p>}
+      {archivedMilestones.length > 0 && <details className="business-archived-milestones"><summary>{c(`保管中の達成項目（${archivedMilestones.length}件）`, `已归档达成项（${archivedMilestones.length}项）`)}</summary><p className="business-muted">{c(`外した達成項目は履歴として保管します。復元後の件数が${maxActiveMilestones}件以内なら復元できます。`, `移除的达成项会保留在历史记录中。恢复后不超过${maxActiveMilestones}项即可恢复。`)}</p>{archivedMilestones.map(m => <div className="business-milestone-editor" key={m.id}><span>{m.name || c("名称未入力の達成項目", "未命名达成项")}</span><button type="button" disabled={atMilestoneLimit} onClick={() => milestoneChange(m.id, { archived: false })}>{c("達成項目を復元", "恢复达成项")}</button></div>)}</details>}
     </fieldset>
     <label>{c("参考資料リンク（1行に1件）", "参考资料链接（每行一个）")}<textarea value={links} onChange={v => { setLinks(v.target.value); e.change({ referenceLinks: linksFromText(v.target.value) }); }} rows={3} /></label>
     {e.error && <p role="alert" className="business-error">{e.error}</p>}
-    {e.conflict && <>{addedElsewhere.length > 0 && <div className="business-notice"><p>{c("他の方が追加した達成項目も保持します。合わせて3件を超える場合は、追加分を取り込んで達成項目を外してください。", "将保留其他成员新增的达成项。合计超过3项时，请导入新增项并移除一项达成项。")}</p><button type="button" onClick={() => e.change({ milestones: conflictDraft.milestones })}>{c("追加分を取り込む", "导入新增项")}</button></div>}<Conflict latest={props.latest} draft={conflictDraft} busy={e.busy} members={props.members} themes={props.themes} onSave={version => { if (valid(conflictDraft)) void e.submit({ ...conflictDraft, expectedVersion: version }); }} /></>}
+    {e.conflict && <>{addedElsewhere.length > 0 && <div className="business-notice"><p>{c(`他の方が追加した達成項目も保持します。合わせて${maxActiveMilestones}件を超える場合は、追加分を取り込んで達成項目を外してください。`, `将保留其他成员新增的达成项。合计超过${maxActiveMilestones}项时，请导入新增项并移除多余的达成项。`)}</p><button type="button" onClick={() => e.change({ milestones: conflictDraft.milestones })}>{c("追加分を取り込む", "导入新增项")}</button></div>}<Conflict latest={props.latest} draft={conflictDraft} busy={e.busy} members={props.members} themes={props.themes} onSave={version => { if (valid(conflictDraft)) void e.submit({ ...conflictDraft, expectedVersion: version }); }} /></>}
   </EditorForm>;
 }
 export function MembersEditor(props: Common & { settings: BusinessSettings; candidates: BusinessMember[]; uid: string }) {

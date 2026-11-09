@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSPrope
 import { useI18n } from "../../i18n";
 import { BusinessMilestonePreview } from "./BusinessMilestonePreview";
 import { businessCopy, dateLabel, memberNames, safeBusinessLink, statuses, statusLabel, statusSymbols } from "./presentation";
-import { buildTimeline, milestoneCount, monthIndex, todayMarker, validPlannedPeriod } from "./timeline";
+import { buildTimeline, milestoneCount, monthIndex, orderedActiveMilestones, todayMarker, validPlannedPeriod } from "./timeline";
 import type { BusinessInitiative, BusinessTheme, BusinessWorkspace } from "./types";
 import { TranslatedText, useBusinessTranslation } from "./useBusinessTranslation";
 
@@ -55,7 +55,7 @@ export function BusinessOverview({ view, themes, rows, workspace, selectedId, se
     <div className="business-overview-heading"><span>{c("全体の予定", "整体计划")}</span><span>{months[0]} → {months[monthCount - 1]}<span className="business-overview-total">{c(`${rows.length}件`, `${rows.length}项`)}</span></span></div>
     <div className="business-overview-scroll" tabIndex={0} role="region" aria-label={c("工程表（縦・横にスクロールできます）", "计划图（可上下左右滚动）")}>
       <table className="business-overview-table" style={tableStyle}>
-        <caption className="business-overview-accessible-caption">{c("横棒は予定期間、色と文字は状態、下端の緑色と点・数は完了した達成項目です。", "横条表示计划期间，颜色与文字表示状态，下沿的绿色、圆点和数字表示已完成达成项。")}</caption>
+        <caption className="business-overview-accessible-caption">{c("横棒は予定期間、色と文字は状態、下端の緑色と数は完了した達成項目を表します。", "横条表示计划期间，颜色与文字表示状态，下沿的绿色和数字表示已完成的达成项。")}</caption>
         <colgroup><col className="business-overview-name-column" /><col className="business-overview-progress-column" />{months.map(month => <col key={month} />)}</colgroup>
         <thead><tr><th scope="col">{c("取り組み・担当", "工作与负责人")}</th><th scope="col">{c("達成項目の完了", "已完成达成项")}</th>{months.map((month, index) => <th scope="col" key={month} aria-label={month} className={month === timeline.todayMonth ? "business-overview-current-month" : undefined}>
           <span className="business-overview-year">{index === 0 || month.slice(5) === "01" ? month.slice(0, 4) : "\u00a0"}</span>
@@ -70,7 +70,7 @@ export function BusinessOverview({ view, themes, rows, workspace, selectedId, se
       </table>
     </div>
     <div className="business-overview-legend" aria-label={c("工程表の見方", "计划图说明")}><div>{statuses.map(status => <span key={status}><i aria-hidden="true" className={`business-overview-swatch business-overview-bar-${status}`} />{statusLabel(status, locale)}</span>)}</div><span>{c("横棒＝予定期間　縦線＝今日　下端の緑色＝完了した達成項目", "横条＝计划期间　竖线＝今天　下沿绿色＝已完成达成项")}</span></div>
-    <p className="business-overview-note">{c("下端の緑色と●●○ 2/3は、3つの達成項目のうち2つが完了したことを表します。作業量の割合ではありません。", "下沿的绿色和●●○ 2/3表示3个达成项中已完成2个，不代表工作量比例。")}</p>
+    <p className="business-overview-note">{c("下端の緑色と「3/7」は達成項目7件のうち3件が完了したことを表します。「次の未完了」は表示順で最初の未完了項目です。", "下沿的绿色与“3/7”表示7项达成项中已完成3项。“下一项未完成”是显示顺序中的首个未完成项。")}</p>
     <p className="business-overview-note">{c("横棒にカーソルを合わせるか、タップして達成項目を確認できます。", "将光标移到横条上或点击横条，即可查看达成项。")}</p>
     {preview && rows.filter(row => row.id === preview.rowId).map(row => <BusinessMilestonePreview key={row.id} row={row} id={previewId} anchor={preview.anchor} pinned={preview.pinned}
       close={closePreview} cancelDismiss={cancelDismiss} scheduleDismiss={() => scheduleDismiss(row.id)} openDetails={() => select(row.id)} />)}
@@ -89,7 +89,7 @@ function TimelineRow({ row, workspace, selected, select, months, todayPosition, 
   const milestoneProgress = milestoneCount(row);
   const translated = useBusinessTranslation("initiative", row).fields?.name || row.name;
   return <tr className={`business-overview-row${selected ? " business-selected" : ""}`} onClick={event => { if (!(event.target instanceof Element) || !event.target.closest("button")) select(); }}>
-    <th scope="row"><InitiativeName row={row} selected={selected} select={select} /><small>{memberNames(row.assigneeIds, workspace.members, locale)}</small></th>
+    <th scope="row"><InitiativeName row={row} selected={selected} select={select} /><small>{memberNames(row.assigneeIds, workspace.members, locale)}</small><NextMilestone row={row} /></th>
     <td className="business-overview-progress"><MilestoneSummary row={row} /></td>
     <td colSpan={months.length} className="business-overview-schedule" tabIndex={months.length > 7 ? 0 : undefined} aria-label={period}>
       <div className="business-overview-mobile-months" aria-hidden="true">{months.map((month, index) => <span key={month}><small>{index === 0 || month.slice(5) === "01" ? month.slice(0, 4) : "\u00a0"}</small>{Number(month.slice(5))}月</span>)}</div>
@@ -115,7 +115,18 @@ function TimelineRow({ row, workspace, selected, select, months, todayPosition, 
 function MilestoneSummary({ row }: { row: BusinessInitiative }) {
   const { locale } = useI18n(); const count = milestoneCount(row);
   if (!count.total) return <span className="business-muted">{locale === "ja" ? "達成項目未設定" : "达成项未设置"}</span>;
-  return <span className="business-milestone-count" aria-label={locale === "ja" ? `${count.total}件中${count.completed}件の達成項目が完了` : `${count.total}个达成项已完成${count.completed}个`}><span aria-hidden="true">{"●".repeat(count.completed)}{"○".repeat(count.total - count.completed)}</span><strong>{count.completed}/{count.total}</strong></span>;
+  return <span className="business-milestone-count" role="group" aria-label={locale === "ja" ? `${count.total}件中${count.completed}件の達成項目が完了` : `${count.total}个达成项已完成${count.completed}个`}><strong aria-hidden="true">{count.completed}/{count.total}</strong></span>;
+}
+
+function NextMilestone({ row }: { row: BusinessInitiative }) {
+  const { locale } = useI18n(); const c = businessCopy(locale);
+  const { fields } = useBusinessTranslation("initiative", row);
+  const next = orderedActiveMilestones(row).find(item => !item.completed);
+  if (!next) return null;
+  const translated = fields?.[`milestone:${next.id}`];
+  return <p className="business-next-milestone">
+    {c("次の未完了", "下一项未完成")}{" · "}<span lang={translated ? locale : row.sourceLocale}>{translated || next.name}</span>
+  </p>;
 }
 
 function InitiativeName({ row, selected, select }: { row: BusinessInitiative; selected: boolean; select: () => void }) {
@@ -125,7 +136,17 @@ function InitiativeName({ row, selected, select }: { row: BusinessInitiative; se
 
 function InitiativeListRow({ row, workspace, selected, select }: { row: BusinessInitiative; workspace: BusinessWorkspace; selected: boolean; select: () => void }) {
   const { locale } = useI18n(); const c = businessCopy(locale);
-  return <article className={`business-list-row${selected ? " business-selected" : ""}`}><div><InitiativeName row={row} selected={selected} select={select} /><p className="business-muted">{memberNames(row.assigneeIds, workspace.members, locale)}</p></div><div className="business-row-status"><span className={`business-status business-status-${row.status}`}>{statusSymbols[row.status]} {statusLabel(row.status, locale)}</span><MilestoneSummary row={row} /></div><div className="business-row-update">{row.latestUpdate ? <><small>{row.latestUpdate.authorName} · {dateLabel(row.latestUpdate.createdAt, locale)}</small><p><TranslatedText kind="update" resource={row.latestUpdate} field="body" text={row.latestUpdate.body} compact /></p></> : <p className="business-muted">{c("近況はまだありません", "暂无动态")}</p>}<small>{c("最終更新", "最后更新")}: {dateLabel(row.updatedAt, locale)}</small></div></article>;
+  return <article className={`business-list-row${selected ? " business-selected" : ""}`}>
+    <div><InitiativeName row={row} selected={selected} select={select} /><p className="business-muted">{memberNames(row.assigneeIds, workspace.members, locale)}</p></div>
+    <div>
+      <div className="business-row-status"><span className={`business-status business-status-${row.status}`}>{statusSymbols[row.status]} {statusLabel(row.status, locale)}</span><MilestoneSummary row={row} /></div>
+      <NextMilestone row={row} />
+    </div>
+    <div className="business-row-update">
+      {row.latestUpdate ? <><small>{row.latestUpdate.authorName} · {dateLabel(row.latestUpdate.createdAt, locale)}</small><p><TranslatedText kind="update" resource={row.latestUpdate} field="body" text={row.latestUpdate.body} compact /></p></> : <p className="business-muted">{c("近況はまだありません", "暂无动态")}</p>}
+      <small>{c("最終更新", "最后更新")}: {dateLabel(row.updatedAt, locale)}</small>
+    </div>
+  </article>;
 }
 
 function ThemePurpose({ theme }: { theme: BusinessTheme }) {

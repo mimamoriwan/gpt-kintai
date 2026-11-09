@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-09-business-milestone-capacity",
+    updatedAt: "2026-11-09T10:55:21.643+09:00",
+    kind: "improvement",
+    content: {
+      ja: {
+        title: "会社の取り組みの達成項目を12件まで追加",
+        areas: ["会社の取り組み", "工程表", "一覧・近況", "取り組みの詳細"],
+        changes: ["達成項目を1つの取り組みに12件まで登録できます。", "工程表と一覧に完了件数と次の未完了項目を表示し、詳細では完了済みの項目を開いて確認できます。", "詳細で今週のTo Doに一度に追加できる件数と選択中の件数を確認できます。"],
+        benefits: ["工程を細かく分けて完了を記録し、次に確認する項目を一覧で把握できます。"]
+      },
+      "zh-CN": {
+        title: "每项公司重点工作最多可添加12个达成项",
+        areas: ["公司重点工作", "计划图", "列表与动态", "工作详情"],
+        changes: ["每项工作最多可登记12个达成项。", "计划图与列表显示完成数量和下一项未完成事项，详情中可展开查看已完成的达成项。", "详情会显示每次可添加到本周待办的上限和当前已选项数。"],
+        benefits: ["可细分工作步骤并逐项记录完成情况，在列表中查看下一项待确认事项。"]
+      }
+    }
+  },
+  {
     id: "2026-11-06-business-retrospective",
     updatedAt: "2026-11-06T19:29:55.178+09:00",
     kind: "feature",

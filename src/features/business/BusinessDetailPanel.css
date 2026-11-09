@@ -56,6 +56,7 @@
 .business-detail-disclosure { border-top: 1px solid var(--business-border); padding: 10px 0; font-size: 12px; }
 .business-detail-disclosure > summary { cursor: pointer; color: var(--business-muted); width: fit-content; }
 .business-detail-disclosure[open] > summary { margin-bottom: 12px; color: var(--business-ink); }
+.business-completed-milestones { margin-top: 12px; }
 .business-detail-description { font-size: 13px; }
 .business-detail-description > p { white-space: pre-wrap; }
 .business-detail-description .business-facts { margin: 12px 0 0; }

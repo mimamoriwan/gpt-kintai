@@ -32,3 +32,7 @@ export function milestoneCount(row: Pick<BusinessInitiative, "milestones">): { c
   const active = row.milestones.filter(step => !step.archived);
   return { completed: active.filter(step => step.completed).length, total: active.length };
 }
+
+export function orderedActiveMilestones(row: Pick<BusinessInitiative, "milestones">) {
+  return row.milestones.filter(item => !item.archived).sort((a, b) => a.order - b.order);
+}

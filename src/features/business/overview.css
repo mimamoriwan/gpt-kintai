@@ -48,7 +48,6 @@
 .business-overview-row>th>small{display:block;font-size:11px;color:var(--business-muted);margin-top:3px}
 .business-overview-progress{padding:7px 4px;text-align:center!important;color:var(--business-muted);font-size:10px;border-right:1px solid var(--business-border)}
 .business-overview-progress .business-milestone-count{display:flex;flex-direction:column;gap:2px;justify-content:center;align-items:center;font-size:12px;font-variant-numeric:tabular-nums}
-.business-overview-progress .business-milestone-count>span{max-width:66px;font-size:10px;letter-spacing:2px;color:#319165}
 .business-overview-progress .business-milestone-count>strong{font-weight:500}
 .business-overview-progress .business-milestone-count>strong,.business-preview-count{background:#e0f4e7;color:#16613e;border-radius:999px;padding:1px 8px}
 .business-overview-schedule{padding:0;height:1px}
@@ -72,12 +71,12 @@
 .business-overview-accessible-caption{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .business-page .business-overview-lane button.business-overview-bar{min-height:36px;padding:4px 6px 10px;border-radius:7px;font-size:11px;background:var(--schedule-bg);color:var(--schedule-ink)}
 .business-page .business-overview-lane button.business-overview-bar:hover:not(:disabled),.business-page .business-overview-lane button.business-overview-bar[aria-expanded="true"]{background:var(--schedule-bg);border-color:var(--schedule-accent)}
-.business-milestone-preview{position:fixed;z-index:35;overflow:auto;overscroll-behavior:contain;width:min(300px,calc(100vw - 16px));max-height:min(350px,calc(100vh - 16px));padding:12px;border:1px solid var(--business-border);border-radius:12px;background:var(--business-surface);box-shadow:0 8px 26px #122c4633;font-size:13px}
-.business-milestone-preview-heading,.business-milestone-preview-footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.business-milestone-preview{position:fixed;z-index:35;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain;width:min(300px,calc(100vw - 16px));max-height:min(350px,calc(100vh - 16px));padding:12px;border:1px solid var(--business-border);border-radius:12px;background:var(--business-surface);box-shadow:0 8px 26px #122c4633;font-size:13px}
+.business-milestone-preview-heading,.business-milestone-preview-footer{display:flex;flex-shrink:0;align-items:center;gap:8px;flex-wrap:wrap}
 .business-milestone-preview-heading>strong{flex:1}
 .business-page .business-preview-close{display:grid;place-items:center;min-height:32px;width:32px;padding:0}
-.business-milestone-preview ul{list-style:none;margin:10px 0;padding:0;display:grid;gap:7px}
-.business-milestone-preview li{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:8px}
+.business-milestone-preview ul{list-style:none;margin:10px 0;padding:0;display:grid;gap:7px;min-height:0;overflow:auto;overscroll-behavior:contain}
+.business-milestone-preview li{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:8px;overflow-wrap:anywhere}
 .business-milestone-preview li svg{margin-top:3px}
 .business-milestone-preview-footer{justify-content:space-between;padding-top:8px;border-top:1px solid var(--business-border);color:var(--business-muted)}
 .business-page .business-milestone-preview-footer button{min-height:36px;padding:4px 10px;color:var(--business-blue)}
@@ -112,7 +111,7 @@
   .business-overview-bar-in_progress{--schedule-bg:#244777;--schedule-ink:#d6e8ff;--schedule-accent:#7db3ff}
   .business-overview-bar-on_hold{--schedule-bg:#6a4d24;--schedule-ink:#ffe1ae;--schedule-accent:#e6b253}
   .business-overview-bar-completed{--schedule-bg:#21543f;--schedule-ink:#d7f4e5;--schedule-accent:#68e0a6}
-  .business-overview-progress .business-milestone-count>span,.business-weekly-done,.business-preview-done{color:#9bdabb}
+  .business-weekly-done,.business-preview-done{color:#9bdabb}
   .business-overview-milestone-track{background:rgba(255,255,255,.22)}
   .business-overview-milestone-fill{background:#68e0a6}
   .business-page .business-assignee-shortcuts button[aria-pressed="true"]{color:#152233}
