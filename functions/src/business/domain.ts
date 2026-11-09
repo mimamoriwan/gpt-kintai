@@ -9,15 +9,21 @@ export const status = z.enum(["not_started", "in_progress", "on_hold", "complete
 const name = z.string().trim().min(1).max(200);
 const referenceLinks = z.array(z.string().url().max(2000).refine((value) => /^https?:\/\//i.test(value))).max(10);
 const order = z.number().int().min(0).max(10000);
-const maxActiveMilestones = 12;
+const maxActiveMilestones = 30;
 const commonInput = { id: identifier, expectedVersion: version, name, description: z.string().max(10000), sourceLocale: locale, referenceLinks };
 export const themeInput = z.object({ ...commonInput, order }).strict();
 const month = z.string().refine((value) => value === "" || /^(?:19|20|21)\d{2}-(?:0[1-9]|1[0-2])$/.test(value));
 export const milestoneInput = z.object({ id: identifier, name, order, archived: z.boolean() }).strict();
+const milestoneGroupInput = z.object({
+  id: identifier,
+  name: name.max(80),
+  milestoneIds: z.array(identifier).max(100)
+}).strict();
 export const initiativeInput = z.object({
   ...commonInput, themeId: identifier, assigneeIds: z.array(identifier).max(3), status,
   plannedStartMonth: month, plannedEndMonth: month, targetMemo: z.string().max(1000),
-  milestones: z.array(milestoneInput).max(100)
+  milestones: z.array(milestoneInput).max(100),
+  milestoneGroups: z.array(milestoneGroupInput).max(10).optional()
 }).strict().superRefine((value, ctx) => {
   const activeMilestones = value.milestones.filter((item) => !item.archived).length;
   if (activeMilestones < 1 || activeMilestones > maxActiveMilestones) {
@@ -26,8 +32,17 @@ export const initiativeInput = z.object({
   if (Boolean(value.plannedStartMonth) !== Boolean(value.plannedEndMonth) || value.plannedStartMonth > value.plannedEndMonth) {
     ctx.addIssue({ code: "custom", message: "予定開始・終了月を確認してください。", path: ["plannedEndMonth"] });
   }
-  if (new Set(value.milestones.map((item) => item.id)).size !== value.milestones.length) {
+  const milestoneIds = new Set(value.milestones.map(item => item.id));
+  if (milestoneIds.size !== value.milestones.length) {
     ctx.addIssue({ code: "custom", message: "節目の識別子が重複しています。", path: ["milestones"] });
+  }
+  const groups = value.milestoneGroups ?? [];
+  if (new Set(groups.map(group => group.id)).size !== groups.length || new Set(groups.map(group => group.name)).size !== groups.length) {
+    ctx.addIssue({ code: "custom", message: "工程グループの名前や識別子が重複しています。", path: ["milestoneGroups"] });
+  }
+  const assigned = groups.flatMap(group => group.milestoneIds);
+  if (new Set(assigned).size !== assigned.length || assigned.some(id => !milestoneIds.has(id))) {
+    ctx.addIssue({ code: "custom", message: "工程グループの達成項目を確認してください。", path: ["milestoneGroups"] });
   }
   if (new Set(value.assigneeIds).size !== value.assigneeIds.length) {
     ctx.addIssue({ code: "custom", message: "担当者が重複しています。", path: ["assigneeIds"] });
@@ -44,6 +59,7 @@ export const historyInput = z.object({ kind: z.enum(["theme", "settings"]), id: 
 
 export type Row = Record<string, any>;
 export type Milestone = { id: string; name: string; order: number; archived: boolean; completed: boolean; updatedAt: number; updatedBy: string };
+type MilestoneGroup = z.infer<typeof milestoneGroupInput>;
 export type Kind = "theme" | "initiative" | "update";
 export const collections = { theme: "businessThemes", initiative: "businessInitiatives", update: "businessUpdates" } as const;
 export function isManager(role: unknown): boolean { return role === "employee_manager" || role === "president_viewer"; }
@@ -67,6 +83,7 @@ export function translationFields(kind: Kind, row: Row): Record<string, string> 
   if (kind === "initiative") {
     fields.targetMemo = row.targetMemo;
     for (const milestone of [...row.milestones].sort((a: Milestone, b: Milestone) => a.id.localeCompare(b.id))) fields[`milestone:${milestone.id}`] = milestone.name;
+    for (const group of [...(row.milestoneGroups ?? [])].sort((a: MilestoneGroup, b: MilestoneGroup) => a.id.localeCompare(b.id))) fields[`milestoneGroup:${group.id}`] = group.name;
   }
   return fields;
 }

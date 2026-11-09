@@ -4,22 +4,40 @@ import { contentVersion, initiativeInput, mergeMilestones, scopeOf } from "./dom
 const step = (index: number, archived = false) => ({ id: `s${index}`, name: `節目${index}`, order: index, archived });
 const input = { id: "work", expectedVersion: 0, name: "販売基盤", description: "説明", sourceLocale: "ja", referenceLinks: [], themeId: "theme", assigneeIds: [], status: "not_started", plannedStartMonth: "", plannedEndMonth: "", targetMemo: "9月末", milestones: [step(1)] };
 describe("business input and content revisions", () => {
-  it("requires 1–12 active milestones while retaining archived entries within a 100-entry total limit", () => {
+  it("requires 1–30 active milestones while retaining archived entries within a 100-entry total limit", () => {
     expect(() => initiativeInput.parse({ ...input, milestones: [] })).toThrow(/有効な節目/);
     expect(() => initiativeInput.parse({ ...input, milestones: [step(1, true)] })).toThrow(/有効な節目/);
     expect(initiativeInput.parse({ ...input, milestones: [step(1)] }).milestones).toHaveLength(1);
     expect(initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3)] }).milestones).toHaveLength(3);
     expect(initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3), step(4)] }).milestones).toHaveLength(4);
-    const twelve = Array.from({ length: 12 }, (_, index) => step(index + 1));
-    expect(initiativeInput.parse({ ...input, milestones: twelve }).milestones).toHaveLength(12);
-    expect(() => initiativeInput.parse({ ...input, milestones: [...twelve, step(13)] })).toThrow(/有効な節目/);
-    expect(initiativeInput.parse({ ...input, milestones: [...twelve, step(13, true)] }).milestones).toHaveLength(13);
+    const thirty = Array.from({ length: 30 }, (_, index) => step(index + 1));
+    expect(initiativeInput.parse({ ...input, milestones: thirty }).milestones).toHaveLength(30);
+    expect(() => initiativeInput.parse({ ...input, milestones: [...thirty, step(31)] })).toThrow(/有効な節目/);
+    expect(initiativeInput.parse({ ...input, milestones: [...thirty, step(31, true)] }).milestones).toHaveLength(31);
     expect(initiativeInput.parse({ ...input, milestones: [step(1), step(2), step(3), step(4, true)] }).milestones).toHaveLength(4);
     expect(initiativeInput.parse({ ...input, milestones: Array.from({ length: 100 }, (_, index) => step(index, index > 0)) }).milestones).toHaveLength(100);
     expect(() => initiativeInput.parse({ ...input, milestones: Array.from({ length: 101 }, (_, index) => step(index, index > 0)) })).toThrow();
   });
   it.each([["", ""], ["2026-09", "2026-09"], ["2026-12", "2027-02"]])("accepts optional, one-month and year-crossing periods: %s–%s", (start, end) => {
     expect(initiativeInput.parse({ ...input, plannedStartMonth: start, plannedEndMonth: end }).targetMemo).toBe("9月末");
+  });
+  it("allows ungrouped and archived milestones, and validates group IDs, names, size and membership", () => {
+    const groups = [
+      { id: "group-a", name: "準備", milestoneIds: ["s1", "s2"] },
+      { id: "group-b", name: "確認", milestoneIds: [] }
+    ];
+    const draft = { ...input, milestones: [step(1), step(2, true), step(3)], milestoneGroups: groups };
+    expect(initiativeInput.parse(draft).milestoneGroups).toEqual(groups);
+    for (const milestoneGroups of [
+      [{ ...groups[0], milestoneIds: ["unknown"] }],
+      [{ ...groups[0], milestoneIds: ["s1", "s1"] }],
+      [groups[0], { ...groups[1], milestoneIds: ["s1"] }],
+      [groups[0], { ...groups[1], id: groups[0].id }],
+      [groups[0], { ...groups[1], name: " 準備 " }],
+      Array.from({ length: 11 }, (_, i) => ({ id: `g${i}`, name: `Group ${i}`, milestoneIds: [] }))
+    ]) {
+      expect(initiativeInput.safeParse({ ...draft, milestoneGroups }).success).toBe(false);
+    }
   });
   it.each([["2026-09", ""], ["", "2026-10"], ["2026-10", "2026-09"], ["2026-13", "2027-02"], ["2026-9", "2027-02"]])("rejects invalid period %s–%s", (start, end) => {
     expect(() => initiativeInput.parse({ ...input, plannedStartMonth: start, plannedEndMonth: end })).toThrow();

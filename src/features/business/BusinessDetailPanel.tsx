@@ -6,9 +6,9 @@ import { mondayOf } from "../weeklyTodo/calendar";
 import { businessErrorMessage, getBusinessInitiativeDetail, postBusinessUpdate, setBusinessMilestoneCompletion, setBusinessStatus } from "./api";
 import { BusinessComparison } from "./BusinessForms";
 import { businessCopy, dateLabel, memberNames, newBusinessId, safeBusinessLink, statuses, statusLabel } from "./presentation";
-import { orderedActiveMilestones } from "./timeline";
+import { milestoneSections } from "./timeline";
 import type { BusinessAnnouncementDraft, BusinessDetail, BusinessInitiative, BusinessMember, BusinessMilestone, BusinessTheme } from "./types";
-import { TranslatedText } from "./useBusinessTranslation";
+import { TranslatedText, useBusinessTranslation } from "./useBusinessTranslation";
 import "./BusinessDetailPanel.css";
 
 const weeklyTodoBatchLimit = 3;
@@ -31,7 +31,10 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
   const [addedItem, setAddedItem] = useState("");
   const canUpdate = !row.archived && !theme?.archived && (canManage || row.assigneeIds.includes(profile.uid));
   const canAddTodo = canUpdate && Boolean(onOpenWeeklyTodo) && row.status !== "completed";
-  const milestones = orderedActiveMilestones(row);
+  const sections = milestoneSections(row);
+  const hasGroups = Boolean(row.milestoneGroups?.length);
+  const milestones = sections.flatMap(section => section.items);
+  const groupTranslation = useBusinessTranslation("initiative", row).fields;
   const pendingMilestones = milestones.filter(item => !item.completed);
   const completedMilestones = milestones.filter(item => item.completed);
   const selectedIds = pendingMilestones.filter(item => selectedMilestones.includes(item.id)).map(item => item.id);
@@ -130,6 +133,17 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
       </label>}
     </div>;
   }
+  function renderItems(items: BusinessMilestone[], foldCompleted: boolean) {
+    const pending = items.filter(item => !item.completed);
+    const completed = items.filter(item => item.completed);
+    return <>
+      {pending.map(renderMilestone)}
+      {completed.length > 0 && (foldCompleted ? <details className="business-detail-disclosure business-completed-milestones">
+        <summary>{c(`完了済みの達成項目（${completed.length}件）`, `已完成的达成项（${completed.length}项）`)}</summary>
+        {completed.map(renderMilestone)}
+      </details> : completed.map(renderMilestone))}
+    </>;
+  }
   const latestUpdate = [...(detail?.updates || []), ...(row.latestUpdate ? [row.latestUpdate] : [])]
     .filter(update => update.initiativeId === row.id && typeof update.body === "string" && Number.isFinite(update.createdAt))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
@@ -151,13 +165,20 @@ export function BusinessDetailPanel({ row, theme, themes, members, profile, canM
       {canAddTodo && pendingMilestones.length > 0 && <p className="business-detail-note business-muted">
         {c(`今週のTo Doに1回で${weeklyTodoBatchLimit}件まで追加できます（${selectedIds.length}件選択中）。`, `每次可向本周待办添加最多${weeklyTodoBatchLimit}项（已选${selectedIds.length}项）。`)}
       </p>}
-      {pendingMilestones.map(renderMilestone)}
+      {hasGroups ? sections.map(({ group, items }) => {
+        if (!group && !items.length) return null;
+        const translated = group && groupTranslation?.[`milestoneGroup:${group.id}`];
+        const completed = items.filter(item => item.completed).length;
+        return <details className="business-detail-disclosure business-milestone-group" key={group ? `group-${group.id}` : "ungrouped"}>
+          <summary>
+            <span lang={group ? (translated ? locale : row.sourceLocale) : locale}>{translated || group?.name || c("未分類", "未分组")}</span>
+            <small>{items.length ? c(`${completed}/${items.length}件完了`, `已完成${completed}/${items.length}项`) : c("項目なし", "暂无事项")}</small>
+          </summary>
+          {renderItems(items, completed > 0 && completed < items.length)}
+        </details>;
+      }) : renderItems(milestones, true)}
       {canAddTodo && pendingMilestones.length > 0 && <div className="business-actions"><button type="button" className="business-primary" disabled={busy || !selectedIds.length} onClick={() => void addToWeeklyTodo()}>{c("選んだ項目を今週に追加", "将所选达成项添加到本周")}</button></div>}
       {addedItem && onOpenWeeklyTodo && <div className="business-actions business-added-todo"><button type="button" disabled={busy} onClick={() => onOpenWeeklyTodo(addedItem)}>{c("今週のTo Doを開く", "打开本周待办")}</button></div>}
-      {completedMilestones.length > 0 && <details className="business-detail-disclosure business-completed-milestones">
-        <summary>{c(`完了済みの達成項目（${completedMilestones.length}件）`, `已完成的达成项（${completedMilestones.length}项）`)}</summary>
-        {completedMilestones.map(renderMilestone)}
-      </details>}
     </section>
     <section className="business-detail-latest"><h3>{c("最新の近況", "最新动态")}</h3>
       {latestUpdate && <article className="business-update business-latest-update">{updateLabel(latestUpdate) && <strong className="business-linked-report-label">{updateLabel(latestUpdate)}</strong>}<p><TranslatedText kind="update" resource={latestUpdate} field="body" text={latestUpdate.body} /></p><div className="business-muted">{latestUpdate.authorName} · {dateLabel(latestUpdate.createdAt, locale)}</div></article>}

@@ -42,18 +42,26 @@ describe("company initiative overview", () => {
       id: `item-${order}`, name: `項目${order}`, order, archived: order === 0, completed: order >= 1 && order <= 3,
       updatedAt: 0, updatedBy: profile.uid
     })).reverse();
+    row.milestoneGroups = [
+      { id: "order", name: "発注・納期", milestoneIds: ["item-2", "item-5", "item-6"] },
+      { id: "prepare", name: "準備", milestoneIds: ["item-1", "item-3", "item-4"] }
+    ];
     row.latestUpdate = { id: "report", initiativeId: row.id, body: "確認待ち", sourceLocale: locale, contentVersion: "report", authorId: profile.uid, authorName: profile.displayName, createdAt: 4 };
     api.getBusinessWorkspace.mockResolvedValue(workspace);
     render(<BusinessPage profile={profile} onCreateAnnouncement={vi.fn()} />);
 
     const timelineRow = (await screen.findByRole("button", { name: row.name })).closest("tr")!;
     expect(within(timelineRow).getByLabelText(countLabel)).toHaveTextContent("3/7");
-    expect(timelineRow).toHaveTextContent(`${nextLabel} · 項目4`);
+    expect(timelineRow).toHaveTextContent(`${nextLabel} · 発注・納期 / 項目5`);
     expect(timelineRow).not.toHaveTextContent(/[●○]/);
+    const bar = timelineRow.querySelector(".business-overview-bar")!;
+    fireEvent.click(bar);
+    const preview = screen.getByText("発注・納期", { selector: ".business-preview-groups span" }).closest("li")!;
+    expect(preview).toHaveTextContent(locale === "ja" ? "1/3件完了" : "已完成1/3项");
     fireEvent.click(screen.getByRole("button", { name: listLabel }));
     const listRow = screen.getByRole("button", { name: row.name }).closest("article")!;
     expect(within(listRow).getByLabelText(countLabel)).toHaveTextContent("3/7");
-    expect(listRow).toHaveTextContent(`${nextLabel} · 項目4`);
+    expect(listRow).toHaveTextContent(`${nextLabel} · 発注・納期 / 項目5`);
     expect(within(listRow).getByText("確認待ち")).toBeVisible();
   });
 

@@ -3,9 +3,9 @@ import { createPortal } from "react-dom";
 import { Circle, CircleCheck, X } from "lucide-react";
 import { useI18n } from "../../i18n";
 import { businessCopy } from "./presentation";
-import { orderedActiveMilestones } from "./timeline";
+import { milestoneSections } from "./timeline";
 import type { BusinessInitiative } from "./types";
-import { TranslatedText } from "./useBusinessTranslation";
+import { TranslatedText, useBusinessTranslation } from "./useBusinessTranslation";
 
 export function BusinessMilestonePreview({ row, anchor, id, pinned, close, cancelDismiss, scheduleDismiss, openDetails }: {
   row: BusinessInitiative;
@@ -22,7 +22,9 @@ export function BusinessMilestonePreview({ row, anchor, id, pinned, close, cance
   const panel = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number }>();
-  const milestones = orderedActiveMilestones(row);
+  const sections = milestoneSections(row);
+  const milestones = sections.flatMap(section => section.items);
+  const groupTranslation = useBusinessTranslation("initiative", row).fields;
   const completed = milestones.filter(item => item.completed).length;
 
   useLayoutEffect(() => {
@@ -82,7 +84,15 @@ export function BusinessMilestonePreview({ row, anchor, id, pinned, close, cance
       <span className="business-preview-count">{c(`${completed}/${milestones.length}件完了`, `已完成 ${completed}/${milestones.length} 项`)}</span>
       <button type="button" className="business-preview-close" aria-label={c("達成項目を閉じる", "关闭达成项")} onClick={() => { anchor.focus({ preventScroll: true }); close(); }}><X size={16} aria-hidden="true" /></button>
     </div>
-    {milestones.length > 0 ? <ul tabIndex={pinned ? 0 : undefined}>{milestones.map(item => <li key={item.id}>
+    {row.milestoneGroups?.length ? <ul className="business-preview-groups" tabIndex={pinned ? 0 : undefined}>{sections.map(({ group, items }) => {
+      if (!group && !items.length) return null;
+      const translated = group && groupTranslation?.[`milestoneGroup:${group.id}`];
+      const done = items.filter(item => item.completed).length;
+      return <li key={group ? `group-${group.id}` : "ungrouped"}>
+        <span lang={group ? (translated ? locale : row.sourceLocale) : locale}>{translated || group?.name || c("未分類", "未分组")}</span>
+        <small>{items.length ? c(`${done}/${items.length}件完了`, `已完成${done}/${items.length}项`) : c("項目なし", "暂无事项")}</small>
+      </li>;
+    })}</ul> : milestones.length > 0 ? <ul tabIndex={pinned ? 0 : undefined}>{milestones.map(item => <li key={item.id}>
       <span className={item.completed ? "business-preview-done" : "business-muted"} role="img" aria-label={item.completed ? c("完了", "已完成") : c("未完了", "未完成")}>{item.completed ? <CircleCheck size={16} aria-hidden="true" /> : <Circle size={16} aria-hidden="true" />}</span>
       <TranslatedText kind="initiative" resource={row} field={`milestone:${item.id}`} text={item.name} compact />
     </li>)}</ul> : <p className="business-muted">{c("達成項目は未設定です。", "尚未设置达成项。")}</p>}

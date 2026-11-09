@@ -36,3 +36,13 @@ export function milestoneCount(row: Pick<BusinessInitiative, "milestones">): { c
 export function orderedActiveMilestones(row: Pick<BusinessInitiative, "milestones">) {
   return row.milestones.filter(item => !item.archived).sort((a, b) => a.order - b.order);
 }
+
+export function milestoneSections(row: Pick<BusinessInitiative, "milestones" | "milestoneGroups">) {
+  const milestones = orderedActiveMilestones(row);
+  const groups = row.milestoneGroups ?? [];
+  const groupByMilestone = new Map(groups.flatMap(group => group.milestoneIds.map(id => [id, group.id] as const)));
+  return [
+    ...groups.map(group => ({ group, items: milestones.filter(item => groupByMilestone.get(item.id) === group.id) })),
+    { group: null, items: milestones.filter(item => !groupByMilestone.has(item.id)) }
+  ];
+}

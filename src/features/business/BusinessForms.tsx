@@ -4,11 +4,12 @@ import { useI18n } from "../../i18n";
 import type { Locale } from "../../types";
 import { businessErrorCode, businessErrorMessage, saveBusinessInitiative, saveBusinessSettings, saveBusinessTheme } from "./api";
 import { businessCopy, memberNames, newBusinessId, safeBusinessLink, statuses, statusLabel } from "./presentation";
-import type { BusinessInitiative, BusinessInitiativeInput, BusinessMember, BusinessSettings, BusinessTheme, BusinessThemeInput } from "./types";
+import type { BusinessInitiative, BusinessInitiativeInput, BusinessMember, BusinessMilestoneGroup, BusinessSettings, BusinessTheme, BusinessThemeInput } from "./types";
 
 type Common = { onSaved: (id?: string) => void; onCancel: () => void; onDirty: (dirty: boolean) => void; refresh: () => Promise<void>; onAccessError: (error: unknown) => void };
-const maxActiveMilestones = 12;
+const maxActiveMilestones = 30;
 const maxStoredMilestones = 100;
+const maxMilestoneGroups = 10;
 
 function LocaleInput({ value, onChange }: { value: Locale; onChange: (value: Locale) => void }) {
   const { locale } = useI18n();
@@ -46,29 +47,36 @@ export function BusinessComparison({ before, after, members = [], themes = [] }:
   const labels: Record<string, string> = {
     name: c("名称", "名称"), description: c("説明", "说明"), themeId: c("所属テーマ", "所属主题"), assigneeIds: c("担当", "负责人"),
     status: c("状態", "状态"), plannedStartMonth: c("予定開始月", "计划开始月"), plannedEndMonth: c("予定終了月", "计划结束月"), targetMemo: c("目標時期メモ", "目标时间备注"),
-    order: c("表示順", "显示顺序"), referenceLinks: c("参考資料", "参考资料"), milestones: c("達成項目", "达成项"), archived: c("アーカイブ", "归档"),
+    order: c("表示順", "显示顺序"), referenceLinks: c("参考資料", "参考资料"), milestones: c("達成項目", "达成项"), milestoneGroups: c("工程グループ", "流程分组"), archived: c("アーカイブ", "归档"),
     enabled: c("利用可能", "启用"), memberIds: c("共有メンバー", "共享成员"), sourceLocale: c("原文の言語", "原文语言")
   };
-  function display(key: string, value: unknown): string {
+  function display(key: string, value: unknown, record: Record<string, unknown>): string {
     if (value === undefined || value === null || value === "") return "—";
     if (key === "themeId" && typeof value === "string") return themes.find(t => t.id === value)?.name || c("以前のテーマ", "之前的主题");
     if (key === "sourceLocale") return value === "ja" ? "日本語" : "中文";
     if (key === "status" && statuses.includes(value as never)) return statusLabel(value as BusinessInitiative["status"], locale);
     if ((key === "assigneeIds" || key === "memberIds") && Array.isArray(value)) return memberNames(value as string[], members, locale);
     if (key === "milestones" && Array.isArray(value)) return value.map(m => `${m.archived ? c("（保管）", "（归档）") : ""}${m.completed ? "✓ " : "○ "}${m.name}`).join(" / ") || "—";
+    if (key === "milestoneGroups" && Array.isArray(value)) {
+      const items = Array.isArray(record.milestones) ? record.milestones : [];
+      return (value as BusinessMilestoneGroup[]).map(group => {
+        const names = group.milestoneIds.map(id => items.find(item => item.id === id)?.name ?? id);
+        return names.length ? `${group.name}（${names.join("、")}）` : group.name;
+      }).join(" / ") || "—";
+    }
     if (typeof value === "boolean") return value ? c("はい", "是") : c("いいえ", "否");
     if (Array.isArray(value)) return value.join(" / ") || "—";
     return String(value);
   }
   const keys = Object.keys(labels).filter(key => JSON.stringify(left[key]) !== JSON.stringify(right[key]));
-  return <dl className="business-comparison">{keys.map(key => <div key={key}><dt>{labels[key]}</dt><dd><span>{display(key, left[key])}</span><span aria-hidden="true"> → </span><strong>{display(key, right[key])}</strong></dd></div>)}</dl>;
+  return <dl className="business-comparison">{keys.map(key => <div key={key}><dt>{labels[key]}</dt><dd><span>{display(key, left[key], left)}</span><span aria-hidden="true"> → </span><strong>{display(key, right[key], right)}</strong></dd></div>)}</dl>;
 }
-function Conflict({ latest, draft, onSave, busy, members, themes }: { latest?: { version: number }; draft: { expectedVersion: number }; onSave: (version: number) => void; busy: boolean; members?: BusinessMember[]; themes?: BusinessTheme[] }) {
+function Conflict({ latest, draft, onSave, busy, blocked, members, themes }: { latest?: { version: number }; draft: { expectedVersion: number }; onSave: (version: number) => void; busy: boolean; blocked?: boolean; members?: BusinessMember[]; themes?: BusinessTheme[] }) {
   const { locale } = useI18n(); const c = businessCopy(locale);
   return <aside className="business-conflict" role="alert"><h3>{c("最新の内容と入力を確認", "核对最新内容与您的输入")}</h3>
     <p>{c("左が最新の保存内容、右が今回保存する内容です。確認してから再保存してください。", "左侧为最新保存内容，右侧为您将保存的内容。请核对后重新保存。")}</p>
     {latest && <BusinessComparison before={latest} after={draft} members={members} themes={themes} />}
-    <button type="button" disabled={busy || !latest || ("archived" in latest && Boolean(latest.archived)) || latest.version <= draft.expectedVersion} onClick={() => latest && onSave(latest.version)}>{c("最新の版を基準に、この入力を保存", "基于最新版保存这些输入")}</button>
+    <button type="button" disabled={busy || blocked || !latest || ("archived" in latest && Boolean(latest.archived)) || latest.version <= draft.expectedVersion} onClick={() => latest && onSave(latest.version)}>{c("最新の版を基準に、この入力を保存", "基于最新版保存这些输入")}</button>
   </aside>;
 }
 function FormFooter({ busy, onCancel, label }: { busy: boolean; onCancel: () => void; label?: string }) {
@@ -141,10 +149,25 @@ export function ThemeEditor(props: Common & { theme?: BusinessTheme; latest?: Bu
 }
 export function InitiativeEditor(props: Common & { initiative?: BusinessInitiative; latest?: BusinessInitiative; themes: BusinessTheme[]; members: BusinessMember[]; focusMilestones?: boolean }) {
   const { locale } = useI18n(); const c = businessCopy(locale);
-  const initial: BusinessInitiativeInput = props.initiative ? { id: props.initiative.id, expectedVersion: props.initiative.version, themeId: props.initiative.themeId, name: props.initiative.name, description: props.initiative.description, sourceLocale: props.initiative.sourceLocale, referenceLinks: props.initiative.referenceLinks, assigneeIds: props.initiative.assigneeIds, status: props.initiative.status, plannedStartMonth: props.initiative.plannedStartMonth, plannedEndMonth: props.initiative.plannedEndMonth, targetMemo: props.initiative.targetMemo, milestones: [...props.initiative.milestones].sort((a,b) => a.order-b.order).map(({ id, name, order, archived }) => ({ id, name, order, archived })) } : { id: newBusinessId(), expectedVersion: 0, themeId: props.themes.find(t => !t.archived)?.id || "", name: "", description: "", sourceLocale: locale, referenceLinks: [], assigneeIds: [], status: "not_started", plannedStartMonth: "", plannedEndMonth: "", targetMemo: "", milestones: [{ id: newBusinessId(), name: "", order: 0, archived: false }] };
+  const initial: BusinessInitiativeInput = props.initiative ? { id: props.initiative.id, expectedVersion: props.initiative.version, themeId: props.initiative.themeId, name: props.initiative.name, description: props.initiative.description, sourceLocale: props.initiative.sourceLocale, referenceLinks: props.initiative.referenceLinks, assigneeIds: props.initiative.assigneeIds, status: props.initiative.status, plannedStartMonth: props.initiative.plannedStartMonth, plannedEndMonth: props.initiative.plannedEndMonth, targetMemo: props.initiative.targetMemo, ...(props.initiative.milestoneGroups && { milestoneGroups: props.initiative.milestoneGroups }), milestones: [...props.initiative.milestones].sort((a,b) => a.order-b.order).map(({ id, name, order, archived }) => ({ id, name, order, archived })) } : { id: newBusinessId(), expectedVersion: 0, themeId: props.themes.find(t => !t.archived)?.id || "", name: "", description: "", sourceLocale: locale, referenceLinks: [], assigneeIds: [], status: "not_started", plannedStartMonth: "", plannedEndMonth: "", targetMemo: "", milestones: [{ id: newBusinessId(), name: "", order: 0, archived: false }] };
   const e = useEditor(initial, saveBusinessInitiative, props);
   const [links, setLinks] = useState(initial.referenceLinks.join("\n"));
   const milestoneSection = useRef<HTMLFieldSetElement>(null);
+  const [groupsBase, setGroupsBase] = useState(initial.milestoneGroups ?? []);
+  const groups = e.draft.milestoneGroups ?? [];
+  const groupByMilestone = new Map(groups.flatMap(group => group.milestoneIds.map(id => [id, group.id] as const)));
+  function moveGroup(index: number, direction: number) {
+    const next = [...groups];
+    const other = index + direction;
+    [next[index], next[other]] = [next[other], next[index]];
+    e.change({ milestoneGroups: next });
+  }
+  function assignGroup(milestoneId: string, groupId: string) {
+    e.change({ milestoneGroups: groups.map(group => {
+      const remaining = group.milestoneIds.filter(id => id !== milestoneId);
+      return { ...group, milestoneIds: group.id === groupId ? [...remaining, milestoneId] : remaining };
+    }) });
+  }
   const storageLimitMessage = c(
     `保管中を含めて${maxStoredMilestones}件まで保存できます。上限を超えた場合は未保存の追加項目を減らしてください。`,
     `包含已归档项在内最多可保存${maxStoredMilestones}项。超过上限时，请减少尚未保存的新增项。`
@@ -165,7 +188,12 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
       return false;
     }
     if (active.some(m => !m.name.trim())) { e.setError(c("達成項目の名前を入力してください。", "请填写达成项名称。")); return false; }
-    const { plannedStartMonth: start, plannedEndMonth: end } = e.draft;
+    const names = (draft.milestoneGroups ?? []).map(group => group.name.trim());
+    if (names.some(name => !name) || new Set(names).size !== names.length) {
+      e.setError(c("工程グループの名前を入力し、重複を解消してください。", "请填写流程分组名称并避免重名。"));
+      return false;
+    }
+    const { plannedStartMonth: start, plannedEndMonth: end } = draft;
     if ((start || end) && (!/^\d{4}-(0[1-9]|1[0-2])$/.test(start) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(end) || start > end)) { e.setError(c("予定開始月と終了月を両方設定し、開始月以降を終了月にしてください。", "请同时填写计划开始月和结束月，且结束月不能早于开始月。")); return false; }
     if (!validLinks(linksFromText(links))) { e.setError(c("参考資料は http または https のURLを10件以内で入力してください。", "请填写最多10个 http 或 https 参考资料网址。")); return false; }
     return true;
@@ -177,7 +205,10 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
   function milestoneChange(id: string, patch: Partial<BusinessInitiativeInput["milestones"][number]>) { if (patch.archived === false && atMilestoneLimit) return; e.change({ milestones: e.draft.milestones.map(m => m.id === id ? { ...m, ...patch } : m) }); }
   function removeMilestone(id: string) {
     if (props.initiative?.milestones.some(m => m.id === id) || props.latest?.milestones.some(m => m.id === id)) milestoneChange(id, { archived: true });
-    else e.change({ milestones: e.draft.milestones.filter(m => m.id !== id) });
+    else e.change({
+      milestones: e.draft.milestones.filter(m => m.id !== id),
+      ...(e.draft.milestoneGroups && { milestoneGroups: groups.map(group => ({ ...group, milestoneIds: group.milestoneIds.filter(itemId => itemId !== id) })) })
+    });
   }
   function move(id: string, by: number) {
     const index = activeMilestones.findIndex(m => m.id === id);
@@ -188,7 +219,15 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
     e.change({ milestones: normalizeMilestoneOrders(e.draft.milestones, orderedIds) });
   }
   const addedElsewhere = (props.latest?.milestones || []).filter(m => !e.draft.milestones.some(local => local.id === m.id)).map(({ id, name, order, archived }) => ({ id, name, order, archived }));
-  const conflictDraft = { ...e.draft, milestones: addedElsewhere.length ? normalizeMilestoneOrders([...e.draft.milestones, ...addedElsewhere]) : e.draft.milestones };
+  const latestGroups = props.latest?.milestoneGroups ?? [];
+  const localGroupChanges = JSON.stringify(groups) !== JSON.stringify(groupsBase);
+  const groupConflict = e.conflict && Boolean(props.latest) && localGroupChanges &&
+    JSON.stringify(latestGroups) !== JSON.stringify(groupsBase) && JSON.stringify(latestGroups) !== JSON.stringify(groups);
+  const conflictDraft = {
+    ...e.draft,
+    ...(!localGroupChanges && props.latest?.milestoneGroups && { milestoneGroups: latestGroups }),
+    milestones: addedElsewhere.length ? normalizeMilestoneOrders([...e.draft.milestones, ...addedElsewhere]) : e.draft.milestones
+  };
   return <EditorForm onSubmit={submit} label={c("取り組みの編集", "编辑工作")} title={props.initiative ? c("取り組みを編集", "编辑工作") : c("取り組みを追加", "添加工作")} busy={e.busy} error={e.error} onCancel={props.onCancel}>
     <fieldset><legend>{c("担当者（複数可・未選択は担当未定）", "负责人（可多选，未选择为待定）")}</legend>{props.members.map(m => <label className="business-check" key={m.uid}><input type="checkbox" checked={e.draft.assigneeIds.includes(m.uid)} onChange={v => e.change({ assigneeIds: v.target.checked ? [...e.draft.assigneeIds, m.uid] : e.draft.assigneeIds.filter(id => id !== m.uid) })} />{m.displayName}</label>)}</fieldset>
     <label>{c("所属テーマ", "所属主题")}<select required value={e.draft.themeId} onChange={v => e.change({ themeId: v.target.value })}><option value="">{c("テーマを選択", "选择主题")}</option>{props.themes.filter(t => !t.archived || t.id === e.draft.themeId).map(t => <option key={t.id} value={t.id}>{t.name}{t.archived ? c("（アーカイブ）", "（归档）") : ""}</option>)}</select></label>
@@ -200,14 +239,44 @@ export function InitiativeEditor(props: Common & { initiative?: BusinessInitiati
     <label>{c("目標時期のメモ", "目标时间备注")}<input maxLength={1000} placeholder={c("9月末、先方回答後など", "例如9月底、收到回复后")} value={e.draft.targetMemo} onChange={v => e.change({ targetMemo: v.target.value })} /></label>
     <fieldset ref={milestoneSection}><legend>{c(`達成項目（1〜${maxActiveMilestones}件・現在${activeMilestones.length}件）`, `达成项（1至${maxActiveMilestones}项，当前${activeMilestones.length}项）`)}</legend>
       <p className="business-muted">{c("達成項目の名前と順番を変更できます。完了のチェックと取り組みの状態は詳細画面で別々に更新します。", "可修改达成项名称和顺序。完成勾选与工作状态可在详情中分别更新。")}</p>
-      {activeMilestones.map((m, index) => <div className="business-milestone-editor" key={m.id}><label>{c("達成項目", "达成项")} {index + 1}<input required maxLength={200} value={m.name} onChange={v => milestoneChange(m.id, { name: v.target.value })} /></label><div className="business-actions"><button type="button" disabled={index === 0} aria-label={c(`${m.name || "達成項目"}を上へ`, `${m.name || "达成项"}上移`)} onClick={() => move(m.id, -1)}>↑</button><button type="button" disabled={index === activeMilestones.length - 1} aria-label={c(`${m.name || "達成項目"}を下へ`, `${m.name || "达成项"}下移`)} onClick={() => move(m.id, 1)}>↓</button><button type="button" onClick={() => removeMilestone(m.id)}>{props.initiative?.milestones.some(saved => saved.id === m.id) || props.latest?.milestones.some(saved => saved.id === m.id) ? c("達成項目を外す", "移除达成项") : c("達成項目を削除", "删除达成项")}</button></div></div>)}
+      <fieldset className="business-group-editor">
+        <legend>{c("工程グループ（任意）", "流程分组（可选）")}</legend>
+        <p className="business-muted">{c("グループを追加したら、下の各達成項目で振り分けます。グループを外すと、配下の項目は未分類に移ります。", "添加分组后，可在下方为各达成项选择分组。移除分组后，组内事项会移至未分组。")}</p>
+        {groups.map((group, index) => <div className="business-milestone-editor" key={group.id}>
+          <label>{c("工程グループ名", "流程分组名称")} {index + 1}<input required maxLength={80} value={group.name} onChange={event => {
+            const name = event.target.value;
+            e.change({ milestoneGroups: groups.map(item => item.id === group.id ? { ...item, name } : item) });
+          }} /></label>
+          <div className="business-actions">
+            <button type="button" disabled={index === 0} aria-label={c(`工程グループ ${index + 1} を上へ`, `上移流程分组 ${index + 1}`)} onClick={() => moveGroup(index, -1)}>↑</button>
+            <button type="button" disabled={index === groups.length - 1} aria-label={c(`工程グループ ${index + 1} を下へ`, `下移流程分组 ${index + 1}`)} onClick={() => moveGroup(index, 1)}>↓</button>
+            <button type="button" onClick={() => e.change({ milestoneGroups: groups.filter(item => item.id !== group.id) })}>{c("工程グループを外す", "移除流程分组")}</button>
+          </div>
+        </div>)}
+        <button type="button" disabled={groups.length >= maxMilestoneGroups} onClick={() => e.change({ milestoneGroups: [...groups, { id: newBusinessId(), name: "", milestoneIds: [] }] })}>{c("工程グループを追加", "添加流程分组")}</button>
+        {groups.length >= maxMilestoneGroups && <p className="business-muted">{c(`工程グループは${maxMilestoneGroups}件までです。`, `最多可添加${maxMilestoneGroups}个流程分组。`)}</p>}
+      </fieldset>
+      {activeMilestones.map((m, index) => <div className="business-milestone-editor" key={m.id}><label>{c("達成項目", "达成项")} {index + 1}<input required maxLength={200} value={m.name} onChange={v => milestoneChange(m.id, { name: v.target.value })} /></label>
+        {groups.length > 0 && <label>{c("工程グループ", "流程分组")}<select aria-label={c(`達成項目 ${index + 1} の工程グループ`, `达成项 ${index + 1} 的流程分组`)} value={groupByMilestone.get(m.id) ?? ""} onChange={event => assignGroup(m.id, event.target.value)}>
+          <option value="">{c("未分類", "未分组")}</option>
+          {groups.map((group, groupIndex) => <option key={group.id} value={group.id}>{group.name.trim() || c(`工程グループ ${groupIndex + 1}`, `流程分组 ${groupIndex + 1}`)}</option>)}
+        </select></label>}
+        <div className="business-actions"><button type="button" disabled={index === 0} aria-label={c(`${m.name || "達成項目"}を上へ`, `${m.name || "达成项"}上移`)} onClick={() => move(m.id, -1)}>↑</button><button type="button" disabled={index === activeMilestones.length - 1} aria-label={c(`${m.name || "達成項目"}を下へ`, `${m.name || "达成项"}下移`)} onClick={() => move(m.id, 1)}>↓</button><button type="button" onClick={() => removeMilestone(m.id)}>{props.initiative?.milestones.some(saved => saved.id === m.id) || props.latest?.milestones.some(saved => saved.id === m.id) ? c("達成項目を外す", "移除达成项") : c("達成項目を削除", "删除达成项")}</button></div></div>)}
       <button type="button" disabled={atMilestoneLimit || e.draft.milestones.length >= maxStoredMilestones} onClick={() => e.change({ milestones: [...e.draft.milestones, { id: newBusinessId(), name: "", order: Math.min(10000, Math.max(-1, ...e.draft.milestones.map(m => m.order)) + 1), archived: false }] })}>{c("達成項目を追加", "添加达成项")}</button>
       {e.draft.milestones.length >= maxStoredMilestones && <p className="business-muted">{storageLimitMessage}</p>}
       {archivedMilestones.length > 0 && <details className="business-archived-milestones"><summary>{c(`保管中の達成項目（${archivedMilestones.length}件）`, `已归档达成项（${archivedMilestones.length}项）`)}</summary><p className="business-muted">{c(`外した達成項目は履歴として保管します。復元後の件数が${maxActiveMilestones}件以内なら復元できます。`, `移除的达成项会保留在历史记录中。恢复后不超过${maxActiveMilestones}项即可恢复。`)}</p>{archivedMilestones.map(m => <div className="business-milestone-editor" key={m.id}><span>{m.name || c("名称未入力の達成項目", "未命名达成项")}</span><button type="button" disabled={atMilestoneLimit} onClick={() => milestoneChange(m.id, { archived: false })}>{c("達成項目を復元", "恢复达成项")}</button></div>)}</details>}
     </fieldset>
     <label>{c("参考資料リンク（1行に1件）", "参考资料链接（每行一个）")}<textarea value={links} onChange={v => { setLinks(v.target.value); e.change({ referenceLinks: linksFromText(v.target.value) }); }} rows={3} /></label>
     {e.error && <p role="alert" className="business-error">{e.error}</p>}
-    {e.conflict && <>{addedElsewhere.length > 0 && <div className="business-notice"><p>{c(`他の方が追加した達成項目も保持します。合わせて${maxActiveMilestones}件を超える場合は、追加分を取り込んで達成項目を外してください。`, `将保留其他成员新增的达成项。合计超过${maxActiveMilestones}项时，请导入新增项并移除多余的达成项。`)}</p><button type="button" onClick={() => e.change({ milestones: conflictDraft.milestones })}>{c("追加分を取り込む", "导入新增项")}</button></div>}<Conflict latest={props.latest} draft={conflictDraft} busy={e.busy} members={props.members} themes={props.themes} onSave={version => { if (valid(conflictDraft)) void e.submit({ ...conflictDraft, expectedVersion: version }); }} /></>}
+    {e.conflict && <>{addedElsewhere.length > 0 && <div className="business-notice"><p>{c(`他の方が追加した達成項目も保持します。合わせて${maxActiveMilestones}件を超える場合は、追加分を取り込んで達成項目を外してください。`, `将保留其他成员新增的达成项。合计超过${maxActiveMilestones}项时，请导入新增项并移除多余的达成项。`)}</p><button type="button" onClick={() => e.change({ milestones: conflictDraft.milestones })}>{c("追加分を取り込む", "导入新增项")}</button></div>}
+      {groupConflict && <div className="business-notice">
+        <p>{c("他の方も工程グループを更新しました。最新の分類を取り込んでから、必要な分類を設定し直してください。達成項目名などの入力は残ります。", "其他成员也更新了流程分组。请先载入最新分组，再重新设置所需分类。达成项名称等输入会保留。")}</p>
+        <button type="button" onClick={() => {
+          setGroupsBase(latestGroups);
+          e.change({ milestoneGroups: latestGroups, milestones: conflictDraft.milestones });
+        }}>{c("最新の工程グループを取り込む", "载入最新流程分组")}</button>
+      </div>}
+      <Conflict latest={props.latest} draft={conflictDraft} busy={e.busy} blocked={groupConflict} members={props.members} themes={props.themes} onSave={version => { if (valid(conflictDraft)) void e.submit({ ...conflictDraft, expectedVersion: version }); }} /></>}
   </EditorForm>;
 }
 export function MembersEditor(props: Common & { settings: BusinessSettings; candidates: BusinessMember[]; uid: string }) {

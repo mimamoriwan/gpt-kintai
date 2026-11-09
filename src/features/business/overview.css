@@ -78,6 +78,8 @@
 .business-milestone-preview ul{list-style:none;margin:10px 0;padding:0;display:grid;gap:7px;min-height:0;overflow:auto;overscroll-behavior:contain}
 .business-milestone-preview li{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:8px;overflow-wrap:anywhere}
 .business-milestone-preview li svg{margin-top:3px}
+.business-milestone-preview .business-preview-groups li{grid-template-columns:minmax(0,1fr) auto}
+.business-preview-groups small{white-space:nowrap;color:var(--business-muted)}
 .business-milestone-preview-footer{justify-content:space-between;padding-top:8px;border-top:1px solid var(--business-border);color:var(--business-muted)}
 .business-page .business-milestone-preview-footer button{min-height:36px;padding:4px 10px;color:var(--business-blue)}
 @media(min-width:960px){.business-workbench[data-view=list]{grid-template-columns:minmax(280px,.8fr) minmax(0,1.4fr)}.business-workbench[data-view=list]>.business-overview{max-height:720px;overflow:auto;overscroll-behavior:contain;padding-right:3px}}

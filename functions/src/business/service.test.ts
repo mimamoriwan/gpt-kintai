@@ -244,17 +244,17 @@ describe("business transactions, conflict handling and history", () => {
     expect(results.find((item) => item.status === "rejected")).toMatchObject({ reason: { code: "aborted" } });
     expect(db.rows.get("businessThemes/theme")!.name).toBe("ヤスシ変更");
   });
-  it("expands an existing initiative to twelve active milestones and rejects zero or thirteen", async () => {
+  it("expands an existing initiative to thirty active milestones and rejects zero or thirty-one", async () => {
     await service.setBusinessMilestoneCompletion(auth("fang"), { initiativeId: "initiative", milestoneId: "m1", expectedVersion: 1, completed: true });
     const milestones = [
       ...initiativeInput.milestones,
-      ...Array.from({ length: 11 }, (_, index) => ({ id: `m${index + 2}`, name: `確認${index + 2}`, order: index + 1, archived: false })),
-      { id: "old", name: "過去の節目", order: 12, archived: true }
+      ...Array.from({ length: 29 }, (_, index) => ({ id: `m${index + 2}`, name: `確認${index + 2}`, order: index + 1, archived: false })),
+      { id: "old", name: "過去の節目", order: 30, archived: true }
     ];
     await service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 2, milestones });
     expect(initiative().milestones).toMatchObject(milestones);
     expect(initiative().milestones[0]).toMatchObject({ id: "m1", completed: true });
-    expect(initiative().milestones[11]).toMatchObject({ id: "m12", completed: false });
+    expect(initiative().milestones[29]).toMatchObject({ id: "m30", completed: false });
     expect(initiative().version).toBe(3);
 
     await expect(service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 3, milestones: milestones.map((item) => ({ ...item, archived: true })) })).rejects.toThrow(/有効な節目/);
@@ -273,6 +273,25 @@ describe("business transactions, conflict handling and history", () => {
     expect(initiative().contentVersion).toBe(initialHash);
     await service.setBusinessMilestoneCompletion(auth("fang"), { ...request, expectedVersion: 2, completed: false });
     expect(initiative().milestones[0].completed).toBe(false);
+  });
+  it("persists group names in translation and preserves grouping and completion on legacy saves", async () => {
+    await service.setBusinessMilestoneCompletion(auth("fang"), { initiativeId: "initiative", milestoneId: "m1", expectedVersion: 1, completed: true });
+    const completed = structuredClone(initiative().milestones[0]);
+    const originalHash = initiative().contentVersion;
+    const milestoneGroups = [{ id: "prepare", name: "準備", milestoneIds: ["m1"] }];
+    await service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 2, milestoneGroups });
+    expect(initiative().contentVersion).not.toBe(originalHash);
+    expect(initiative().milestones[0]).toEqual(completed);
+    expect(initiative().milestoneGroups).toEqual(milestoneGroups);
+    const translated = await service.translateBusinessContent(auth("fang"), translateInput());
+    expect(translated.fields["milestoneGroup:prepare"]).toBe("译:準備");
+    expect(translated.fields["milestone:m1"]).toBe("译:見積");
+    await service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 3, description: "更新" });
+    expect(initiative().milestoneGroups).toEqual(milestoneGroups);
+    expect(initiative().milestones[0]).toEqual(completed);
+    await service.saveBusinessInitiative(auth(), { ...initiativeInput, expectedVersion: 4, milestoneGroups: [] });
+    expect(initiative().milestoneGroups).toEqual([]);
+    expect(initiative().milestones[0]).toEqual(completed);
   });
   it("retains latest posts when a pre-existing edit form saves and deduplicates uncertain post retries", async () => {
     const post = { id: "post", initiativeId: "initiative", body: "見積待ち", sourceLocale: "ja" };

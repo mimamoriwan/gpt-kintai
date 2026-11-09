@@ -104,6 +104,8 @@
 .business-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .business-milestone-editor{border-bottom:1px solid var(--business-border);padding:10px 0;margin-bottom:10px}
 .business-milestone-editor .business-actions{margin-top:8px}
+.business-page .business-group-editor{margin:12px 0;padding:8px 12px 12px}
+.business-milestone-editor select{margin-top:4px}
 .business-archived-milestones{margin-top:14px;padding-top:12px;border-top:1px solid var(--business-border)}
 .business-archived-milestones summary{cursor:pointer;color:var(--business-blue);font-weight:600}
 .business-archived-milestones .business-milestone-editor{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}

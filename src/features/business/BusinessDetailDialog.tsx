@@ -18,7 +18,10 @@ export function BusinessDetailDialog({ children, editing, archiveOpen, onClose }
       if (current.current.archiveOpen) return;
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); current.current.onClose(); return; }
       if (event.key !== "Tab") return;
-      const controls = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]') || []);
+      const controls = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],details > summary:first-of-type,[tabindex="0"]') || []).filter(control => {
+        const container = control.matches("summary") ? control.parentElement?.parentElement : control.parentElement;
+        return !container?.closest("details:not([open]), [hidden]");
+      });
       if (!controls.length) { event.preventDefault(); panel.current?.focus(); return; }
       const first = controls[0]; const last = controls[controls.length - 1];
       if (event.shiftKey && (document.activeElement === first || !panel.current?.contains(document.activeElement))) { event.preventDefault(); last.focus(); }

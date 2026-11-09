@@ -57,6 +57,11 @@
 .business-detail-disclosure > summary { cursor: pointer; color: var(--business-muted); width: fit-content; }
 .business-detail-disclosure[open] > summary { margin-bottom: 12px; color: var(--business-ink); }
 .business-completed-milestones { margin-top: 12px; }
+.business-milestone-group { padding: 0; }
+.business-milestone-group > summary { padding: 10px 0; width: 100%; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.business-milestone-group[open] > summary { margin-bottom: 0; }
+.business-milestone-group > summary small { margin-inline-start: 8px; white-space: nowrap; font-weight: 400; color: var(--business-muted); }
+.business-milestone-group + .business-actions { margin-top: 10px; }
 .business-detail-description { font-size: 13px; }
 .business-detail-description > p { white-space: pre-wrap; }
 .business-detail-description .business-facts { margin: 12px 0 0; }

@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-09-business-milestone-groups",
+    updatedAt: "2026-11-09T12:09:02.171+09:00",
+    kind: "improvement",
+    content: {
+      ja: {
+        title: "達成項目を工程グループで整理",
+        areas: ["会社の取り組み", "達成項目の編集", "工程表", "取り組みの詳細"],
+        changes: ["1つの取り組みに達成項目を30件、任意の工程グループを10個まで登録できます。", "詳細では工程ごとの完了件数を表示し、開いたグループの達成項目を確認できます。", "工程表と一覧では、次の未完了項目とそのグループ名を確認できます。"],
+        benefits: ["項目が多い取り組みでも、工程ごとに完了状況を確認し、必要な項目を開いて更新できます。"]
+      },
+      "zh-CN": {
+        title: "按流程分组整理达成项",
+        areas: ["公司重点工作", "编辑达成项", "计划图", "工作详情"],
+        changes: ["每项工作最多可登记30个达成项和10个可选的流程分组。", "详情显示各流程的完成数量，展开分组即可查看组内达成项。", "计划图和列表会显示下一项未完成事项及其分组名称。"],
+        benefits: ["事项较多时，可按流程查看完成情况，并展开所需分组更新达成项。"]
+      }
+    }
+  },
+  {
     id: "2026-11-09-business-milestone-capacity",
     updatedAt: "2026-11-09T10:55:21.643+09:00",
     kind: "improvement",

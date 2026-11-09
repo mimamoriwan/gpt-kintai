@@ -66,3 +66,29 @@ describe("BusinessDetailPanel latest update", () => {
     expect(screen.queryByText("別の取り組みの報告")).not.toBeInTheDocument();
   });
 });
+
+it("summarizes folded groups, excludes archived items and adds original milestone IDs across groups", async () => {
+  api.getBusinessInitiativeDetail.mockResolvedValue({ updates: [], history: [], nextUpdatesCursor: null, nextHistoryCursor: null, fetchedAt: 4000 });
+  addToTodo.mockResolvedValue({ itemIds: ["linked"], addedCount: 2 });
+  const milestones = ["完了した準備", "残りの準備", "別の作業", "保管済み", "分類していない作業"].map((name, order) => ({
+    id: `m${order}`, name, order, archived: order === 3, completed: order === 0, updatedAt: 0, updatedBy: ""
+  }));
+  const milestoneGroups = [
+    { id: "prep", name: "準備", milestoneIds: ["m0", "m1", "m3"] },
+    { id: "work", name: "実行", milestoneIds: ["m2"] }
+  ];
+  render(<BusinessTranslationProvider uid={profile.uid}><BusinessDetailPanel row={{ ...initiative, milestones, milestoneGroups }} themes={[]} members={[profile]} profile={profile} canManage={false} fetchedAt={4000} refresh={vi.fn()} onEdit={vi.fn()} onArchive={vi.fn()} onCreateAnnouncement={vi.fn()} onDirty={vi.fn()} onAccessError={vi.fn()} onOpenWeeklyTodo={vi.fn()} /></BusinessTranslationProvider>);
+  const prepare = screen.getByText("準備").closest("summary")!;
+  const work = screen.getByText("実行").closest("summary")!;
+  expect(prepare.parentElement).not.toHaveAttribute("open");
+  expect(prepare).toHaveTextContent("1/2件完了");
+  expect(work).toHaveTextContent("0/1件完了");
+  expect(screen.getByText("未分類").closest("summary")).toHaveTextContent("0/1件完了");
+  expect(screen.queryByText("保管済み")).not.toBeInTheDocument();
+  fireEvent.click(prepare);
+  fireEvent.click(screen.getByRole("checkbox", { name: "今週取り組む: 残りの準備" }));
+  fireEvent.click(work);
+  fireEvent.click(screen.getByRole("checkbox", { name: "今週取り組む: 別の作業" }));
+  fireEvent.click(screen.getByRole("button", { name: "選んだ項目を今週に追加" }));
+  await waitFor(() => expect(addToTodo).toHaveBeenCalledWith(expect.objectContaining({ milestoneIds: ["m1", "m2"] })));
+});

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSPrope
 import { useI18n } from "../../i18n";
 import { BusinessMilestonePreview } from "./BusinessMilestonePreview";
 import { businessCopy, dateLabel, memberNames, safeBusinessLink, statuses, statusLabel, statusSymbols } from "./presentation";
-import { buildTimeline, milestoneCount, monthIndex, orderedActiveMilestones, todayMarker, validPlannedPeriod } from "./timeline";
+import { buildTimeline, milestoneCount, milestoneSections, monthIndex, todayMarker, validPlannedPeriod } from "./timeline";
 import type { BusinessInitiative, BusinessTheme, BusinessWorkspace } from "./types";
 import { TranslatedText, useBusinessTranslation } from "./useBusinessTranslation";
 
@@ -70,7 +70,7 @@ export function BusinessOverview({ view, themes, rows, workspace, selectedId, se
       </table>
     </div>
     <div className="business-overview-legend" aria-label={c("工程表の見方", "计划图说明")}><div>{statuses.map(status => <span key={status}><i aria-hidden="true" className={`business-overview-swatch business-overview-bar-${status}`} />{statusLabel(status, locale)}</span>)}</div><span>{c("横棒＝予定期間　縦線＝今日　下端の緑色＝完了した達成項目", "横条＝计划期间　竖线＝今天　下沿绿色＝已完成达成项")}</span></div>
-    <p className="business-overview-note">{c("下端の緑色と「3/7」は達成項目7件のうち3件が完了したことを表します。「次の未完了」は表示順で最初の未完了項目です。", "下沿的绿色与“3/7”表示7项达成项中已完成3项。“下一项未完成”是显示顺序中的首个未完成项。")}</p>
+    <p className="business-overview-note">{c("下端の緑色と「3/7」は達成項目7件のうち3件が完了したことを表します。「次の未完了」は工程グループと項目の表示順で決まります。", "下沿的绿色与“3/7”表示7项达成项中已完成3项。“下一项未完成”按流程分组和事项的显示顺序确定。")}</p>
     <p className="business-overview-note">{c("横棒にカーソルを合わせるか、タップして達成項目を確認できます。", "将光标移到横条上或点击横条，即可查看达成项。")}</p>
     {preview && rows.filter(row => row.id === preview.rowId).map(row => <BusinessMilestonePreview key={row.id} row={row} id={previewId} anchor={preview.anchor} pinned={preview.pinned}
       close={closePreview} cancelDismiss={cancelDismiss} scheduleDismiss={() => scheduleDismiss(row.id)} openDetails={() => select(row.id)} />)}
@@ -121,11 +121,16 @@ function MilestoneSummary({ row }: { row: BusinessInitiative }) {
 function NextMilestone({ row }: { row: BusinessInitiative }) {
   const { locale } = useI18n(); const c = businessCopy(locale);
   const { fields } = useBusinessTranslation("initiative", row);
-  const next = orderedActiveMilestones(row).find(item => !item.completed);
+  const section = milestoneSections(row).find(({ items }) => items.some(item => !item.completed));
+  const next = section?.items.find(item => !item.completed);
   if (!next) return null;
   const translated = fields?.[`milestone:${next.id}`];
+  const group = section?.group;
+  const translatedGroup = group && fields?.[`milestoneGroup:${group.id}`];
   return <p className="business-next-milestone">
-    {c("次の未完了", "下一项未完成")}{" · "}<span lang={translated ? locale : row.sourceLocale}>{translated || next.name}</span>
+    {c("次の未完了", "下一项未完成")}{" · "}
+    {group && <><span lang={translatedGroup ? locale : row.sourceLocale}>{translatedGroup || group.name}</span>{" / "}</>}
+    <span lang={translated ? locale : row.sourceLocale}>{translated || next.name}</span>
   </p>;
 }
 

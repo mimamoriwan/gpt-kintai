@@ -22,6 +22,11 @@ export interface BusinessMilestone {
   id: string; name: string; order: number; archived: boolean; completed: boolean;
   updatedAt: number; updatedBy: string;
 }
+export interface BusinessMilestoneGroup {
+  id: string;
+  name: string;
+  milestoneIds: string[];
+}
 export interface BusinessInitiative extends BusinessRecord {
   themeId: string;
   assigneeIds: string[];
@@ -30,6 +35,7 @@ export interface BusinessInitiative extends BusinessRecord {
   plannedEndMonth: string;
   targetMemo: string;
   milestones: BusinessMilestone[];
+  milestoneGroups?: BusinessMilestoneGroup[];
   latestUpdate?: BusinessUpdate;
 }
 export interface BusinessUpdate {
@@ -92,6 +98,7 @@ export interface BusinessInitiativeInput {
   sourceLocale: Locale; referenceLinks: string[]; assigneeIds: string[]; status: BusinessStatus;
   plannedStartMonth: string; plannedEndMonth: string; targetMemo: string;
   milestones: Pick<BusinessMilestone, "id" | "name" | "order" | "archived">[];
+  milestoneGroups?: BusinessMilestoneGroup[];
 }
 export interface BusinessTranslation {
   kind: BusinessContentKind; id: string; targetLocale: Locale; contentVersion: string;
