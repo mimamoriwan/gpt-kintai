@@ -255,6 +255,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .calendar-weekdays span { padding: 7px 2px; color: #738098; font-size: calc(10px * var(--app-font-scale)); font-weight: 700; text-align: center; }
 .calendar-weekdays span.holiday { color: #c35c68; }
 .calendar-month-grid { border: 1px solid var(--line); border-radius: 12px; display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 1px; overflow: hidden; background: var(--line); }
+.calendar-day-cell { position: relative; min-width: 0; display: grid; }
 .calendar-day { min-width: 0; min-height: 76px; padding: 7px; border: 0; position: relative; display: flex; align-items: flex-start; flex-direction: column; gap: 4px; overflow: hidden; color: var(--text); background: #fff; text-align: left; }
 .calendar-day:hover { z-index: 1; background: #f5f8ff; }
 .calendar-day.outside { color: #a7afbd; background: #fafbfc; }
@@ -267,6 +268,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .calendar-day-report-status.submitted { color: #08704c; border-color: #b8e3d2; background: #e7f7f0; }
 .calendar-day-report-status.provisional { color: #75520b; border-color: #ead08f; background: #fff8df; }
 .calendar-day-report-status.missing { color: #a44145; border-color: #efc4c5; background: #fff0f0; }
+button.calendar-day-report-status { z-index: 3; min-width: 24px; min-height: 24px; justify-content: center; }
+button.calendar-report-status { min-height: 32px; }
+button.calendar-day-report-status:hover, button.calendar-report-status:hover { border-color: currentColor; }
+button.calendar-day-report-status:focus-visible, button.calendar-report-status:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .calendar-holiday-name { width: 100%; overflow: hidden; color: #bc5662; font-size: calc(8px * var(--app-font-scale)); line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
 .calendar-day-type-markers { display: flex; align-items: center; gap: 2px; }
 .calendar-day-type { width: 14px; height: 14px; border-radius: 4px; display: inline-grid; place-items: center; font-style: normal; }
@@ -361,7 +366,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shado
 .report-date-card label > span { display: flex; align-items: center; gap: 7px; }
 .report-date-card > div { display: flex; align-items: center; justify-content: flex-end; gap: 10px; color: #46536a; }
 .report-date-card > div strong { font-size: calc(13px * var(--app-font-scale)); }
+.report-date-card.review-date > div { flex-wrap: wrap; justify-content: flex-start; }
 .work-log-card { max-width: 900px; padding: 24px 28px; margin-bottom: 16px; }
+.work-log-card.review-memos { padding-block: 0; }
+.review-memos[open] { padding-bottom: 18px; }
+.review-memos > summary { padding-block: 12px; color: var(--blue); font-size: calc(13px * var(--app-font-scale)); font-weight: 700; cursor: pointer; }
 .work-log-heading { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 16px; }
 .work-log-heading > span { display: flex; align-items: center; gap: 8px; color: var(--blue); }
 .work-log-heading small, .ai-privacy-note, .storage-note { color: var(--muted); font-size: calc(11px * var(--app-font-scale)); }
@@ -859,6 +868,8 @@ td { padding: 12px 9px; border-bottom: 1px solid #edf0f4; white-space: nowrap; }
   .calendar-day { min-height: 53px; padding: 4px; gap: 1px; }
   .calendar-day-number { width: 22px; height: 22px; font-size: calc(10px * var(--app-font-scale)); }
   .calendar-day-report-status { top: 4px; right: 3px; min-height: 16px; padding: 2px 3px; }
+  button.calendar-day-report-status { top: 2px; right: 2px; }
+  button.calendar-day-report-status svg { display: none; }
   .calendar-holiday-name { display: none; }
   .calendar-day-markers { gap: 2px; }
   .calendar-person-dot { width: 6px; height: 6px; }
@@ -976,6 +987,8 @@ td { padding: 12px 9px; border-bottom: 1px solid #edf0f4; white-space: nowrap; }
 }
 
 @media (max-width: 560px) {
+  .calendar-day-cell.has-report-action .calendar-day { padding-bottom: 28px; }
+  button.calendar-day-report-status { top: auto; bottom: 2px; }
   .report-review-modal { padding: 18px; }
   .report-review-meta { grid-template-columns: minmax(0,1fr); }
   .report-review-heading { flex-wrap: wrap; }

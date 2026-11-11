@@ -14,9 +14,9 @@ import type { AnnouncementRecipient, AttendanceRecord, AuditEvent, CompanyHolida
 type AttendanceSaveAction = "start" | "end" | "correction";
 type SavedAttendance = { id: string; userId: string; completed: boolean };
 
-export type HomeOperationsProps = { attendance: AttendanceRecord[]; reports: DailyReport[]; automations?: DailyReportAutomation[]; holidayOverrides: CompanyHolidayOverride[]; instructions?: PresidentInstruction[]; users?: AnnouncementRecipient[]; onReport: () => void; onReportDate?: (date: string) => void; onConfirmReport?: (report: DailyReport) => void; notify: (type: "success" | "error", message: string) => void; view?: "attendance" | "calendar" };
+export type HomeOperationsProps = { attendance: AttendanceRecord[]; reports: DailyReport[]; automations?: DailyReportAutomation[]; holidayOverrides: CompanyHolidayOverride[]; instructions?: PresidentInstruction[]; users?: AnnouncementRecipient[]; onReport: () => void; onReportDate?: (date: string) => void; onConfirmReport?: (report: DailyReport) => void; onCalendarReport?: (report: DailyReport) => void; initialCalendarDate?: string; notify: (type: "success" | "error", message: string) => void; view?: "attendance" | "calendar" };
 
-export function HomeOperationsPage({ attendance, reports, automations = [], holidayOverrides, onReport, onReportDate, onConfirmReport, notify, view = "attendance" }: HomeOperationsProps) {
+export function HomeOperationsPage({ attendance, reports, automations = [], holidayOverrides, onReport, onReportDate, onConfirmReport, onCalendarReport, initialCalendarDate, notify, view = "attendance" }: HomeOperationsProps) {
   const { profile } = useAuth();
   const { locale, t } = useI18n();
   const [mode, setMode] = useState<WorkMode>("office");
@@ -309,7 +309,7 @@ export function HomeOperationsPage({ attendance, reports, automations = [], holi
         </aside>}
       </div>
       </>}
-      {view === "calendar" && <SharedCalendar attendance={attendance} reports={reports} holidayOverrides={holidayOverrides} notify={notify} />}
+      {view === "calendar" && <SharedCalendar attendance={attendance} reports={reports} holidayOverrides={holidayOverrides} initialDate={initialCalendarDate} onConfirmReport={onCalendarReport} notify={notify} />}
       {confirmingClockOut && active && !staleActive && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setConfirmingClockOut(false); }}>
         <section className="modal clock-out-modal" role="dialog" aria-modal="true" aria-labelledby="clock-out-title">
           <div className="modal-icon danger"><Clock3 size={25} /></div>

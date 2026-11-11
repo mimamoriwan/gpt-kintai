@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-11-calendar-report-review",
+    updatedAt: "2026-11-11T10:57:29+09:00",
+    kind: "improvement",
+    content: {
+      ja: {
+        title: "本人確認待ちの日報をカレンダーから提出",
+        areas: ["共有業務カレンダー", "日報"],
+        changes: ["日付欄の「仮」または選択日の「日報本人確認待ち」から、その日の自動作成済みの日報を開けます。", "日報の本文をすぐに確認・修正でき、元の業務メモは必要に応じて展開できます。"],
+        benefits: ["画面下部から正式提出すると同じ月のカレンダーに戻るため、複数日分の日報を順に確認して提出できます。"]
+      },
+      "zh-CN": {
+        title: "可从日历确认并提交待本人确认的日报",
+        areas: ["共享工作日历", "日报"],
+        changes: ["点击日期格中的“待”或所选日期的“日报待本人确认”，即可打开当天自动生成的日报。", "打开后可直接确认和修改日报正文，也可按需展开原始工作记录。"],
+        benefits: ["在页面底部正式提交后会返回同月的日历，方便依次确认并提交多天的日报。"]
+      }
+    }
+  },
+  {
     id: "2026-11-09-business-milestone-groups",
     updatedAt: "2026-11-09T12:09:02.171+09:00",
     kind: "improvement",

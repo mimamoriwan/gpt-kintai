@@ -145,19 +145,37 @@ describe("SharedCalendar", () => {
     expect(screen.getByRole("button", { name: `${formatDate(holiday)}、臨時休業` })).not.toHaveAccessibleName(/日報未提出/);
   });
 
-  it("shows an automatically created report as waiting for employee confirmation", async () => {
-    const today = todayJst();
+  it("opens the exact own provisional report from either calendar control", async () => {
+    const date = "2026-09-01";
+    const nextDate = "2026-09-02";
+    const firstDraft = { id: "draft-1", userId: "manager", reportDate: date, status: "provisional" } as DailyReport;
+    const secondDraft = { ...firstDraft, id: "draft-2", reportDate: nextDate };
+    const otherUserDraft = { ...firstDraft, id: "other-user", userId: "fang-user", reportDate: "2026-09-03" };
+    const onConfirmReport = vi.fn();
     serviceMocks.getCalendarMembers.mockResolvedValue(members);
     serviceMocks.watchCalendarEvents.mockImplementation((_profile, _from, _to, callback) => { callback([]); return vi.fn(); });
 
-    render(<SharedCalendar
-      attendance={[{ userId: "manager", workDate: today }] as AttendanceRecord[]}
-      reports={[{ userId: "manager", reportDate: today, status: "provisional" }] as DailyReport[]}
-      holidayOverrides={[{ id: "provisional-workday", date: today, dayType: "workday" }]}
+    const { rerender } = render(<SharedCalendar
+      attendance={[]}
+      reports={[firstDraft, secondDraft, otherUserDraft]}
+      holidayOverrides={[]}
+      initialDate={date}
+      onConfirmReport={onConfirmReport}
       notify={vi.fn()}
     />);
 
-    expect(await screen.findByRole("button", { name: `${formatDate(today)}、日報本人確認待ち` })).toBeInTheDocument();
+    const firstDay = await screen.findByRole("button", { name: `${formatDate(date)}、日報本人確認待ち` });
+    expect(firstDay).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "日報本人確認待ち" }));
+    expect(onConfirmReport).toHaveBeenLastCalledWith(firstDraft);
+    fireEvent.click(screen.getByRole("button", { name: `${formatDate(nextDate)}の日報を確認` }));
+    expect(onConfirmReport).toHaveBeenLastCalledWith(secondDraft);
+    expect(firstDay).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: `${formatDate(otherUserDraft.reportDate)}の日報を確認` })).not.toBeInTheDocument();
+
+    rerender(<SharedCalendar attendance={[]} reports={[{ ...firstDraft, status: "submitted" }, secondDraft]} holidayOverrides={[]} initialDate={date} onConfirmReport={onConfirmReport} notify={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: `${formatDate(date)}、日報提出済み` })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `${formatDate(date)}の日報を確認` })).not.toBeInTheDocument();
   });
 
   it("hides report status on the signed-in member's leave without attendance", async () => {

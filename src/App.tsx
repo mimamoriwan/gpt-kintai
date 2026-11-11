@@ -123,6 +123,7 @@ export default function App() {
   useEffect(() => { setReplyReportId(null); }, [profile?.uid]);
   const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
   const [initialReportDate, setInitialReportDate] = useState<string | undefined>();
+  const [calendarReport, setCalendarReport] = useState<{ uid: string; date: string }>();
   const [toast, setToast] = useState<ToastState | null>(null);
   const canViewAll = profile?.role === "employee_manager" || profile?.role === "president_viewer";
 
@@ -197,7 +198,7 @@ export default function App() {
   if (needsPasswordChange && (!profile || profile.active)) return <><AppHeader><AppUpdateNotice /><AppCheckRecoveryNotice /></AppHeader><InitialPasswordChangePage key={user.uid} /></>;
   if (!profile || !profile.active || user.uid !== profile.uid) return <><AppHeader><AppUpdateNotice /><AppCheckRecoveryNotice /></AppHeader><AuthRecoveryPage /></>;
 
-  function navigate(next: NavSection) { if (((next === "business" || next === "businessReview") && !businessFeatureAvailable) || ((next === "accounts" || next === "meetingResume") && !canManageAccounts)) return; if (next === "home") setHomeVisit((visit) => visit + 1); businessEntry.clearRoute(); setWeeklyTodoEntry(undefined); setEditingReport(null); setInitialReportDate(undefined); setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function navigate(next: NavSection) { if (((next === "business" || next === "businessReview") && !businessFeatureAvailable) || ((next === "accounts" || next === "meetingResume") && !canManageAccounts)) return; if (next === "home") setHomeVisit((visit) => visit + 1); businessEntry.clearRoute(); setWeeklyTodoEntry(undefined); setEditingReport(null); setInitialReportDate(undefined); setCalendarReport(undefined); setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }
   function openLinkedWeeklyTodo(itemId: string) {
     navigate("weeklyTodo");
     setWeeklyTodoEntry({ uid: profile!.uid, itemId });
@@ -206,8 +207,27 @@ export default function App() {
     navigate("weeklyTodo");
     if (memberId) setWeeklyTodoEntry({ uid: profile!.uid, memberId });
   }
-  function openReportDate(reportDate: string) { businessEntry.clearRoute(); setEditingReport(null); setInitialReportDate(reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
-  function openExistingReport(report: DailyReport) { businessEntry.clearRoute(); setEditingReport(report); setInitialReportDate(report.reportDate); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function openReportDate(reportDate: string) { businessEntry.clearRoute(); setEditingReport(null); setInitialReportDate(reportDate); setCalendarReport(undefined); setSection("report"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function openExistingReport(report: DailyReport, fromCalendar = false) {
+    businessEntry.clearRoute();
+    setEditingReport(report);
+    setInitialReportDate(report.reportDate);
+    setCalendarReport(fromCalendar ? { uid: report.userId, date: report.reportDate } : undefined);
+    setSection("report");
+    window.scrollTo({ top: 0, behavior: fromCalendar ? "instant" : "smooth" });
+  }
+
+  const calendarDate = calendarReport?.uid === profile.uid ? calendarReport.date : undefined;
+  function finishReport() {
+    if (!calendarDate) {
+      navigate("records");
+      return;
+    }
+    setEditingReport(null);
+    setInitialReportDate(undefined);
+    setSection("home");
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
 
   const weeklyEntry = weeklyTodoEntry?.uid === profile.uid ? weeklyTodoEntry : undefined;
   const weeklyTodo = section === "weeklyTodo" && <WeeklyTodoPage key={profile.uid} profile={profile} onOpenReport={openReportDate} initialItemId={weeklyEntry?.itemId} initialMemberId={weeklyEntry?.memberId} onOpenInitiative={businessFeatureAvailable ? businessEntry.openInitiative : undefined} embedded={businessFeatureAvailable} />;
@@ -217,8 +237,8 @@ export default function App() {
     <Shell key={`${user.uid}:${profile.uid}`} section={section} onSection={navigate} instructions={scopedPresidentInstructions} users={announcementRecipients} notify={notify} announcementDraft={businessEntry.announcementDraft} canManageAccounts={canManageAccounts} notificationInstructionId={pushRoute.instructionId} onNotificationHandled={pushRoute.clear}>
       {(openInstructions) => <>
       <DailyReportReplies key={`replies:${profile.uid}`} reports={scopedReports} uid={profile.uid} selectedReportId={replyReportId} onOpen={setReplyReportId} onClose={() => setReplyReportId(null)} notify={notify} />
-      {section === "home" && <HomePage homeVisit={homeVisit} onSection={navigate} onAnnouncements={openInstructions} canManageAccounts={canManageAccounts} attendance={scopedAttendance} reports={scopedReports} automations={scopedDailyReportAutomations} holidayOverrides={holidayOverrides} instructions={scopedPresidentInstructions} users={announcementRecipients} onReport={() => navigate("report")} onReportDate={openReportDate} onConfirmReport={openExistingReport} notify={notify} />}
-      {section === "report" && <ReportPage reports={scopedReports} categories={categories} attendance={scopedAttendance} editing={editingReport} initialDate={initialReportDate} onDone={() => navigate("records")} notify={notify} />}
+      {section === "home" && <HomePage homeVisit={homeVisit} onSection={navigate} onAnnouncements={openInstructions} canManageAccounts={canManageAccounts} attendance={scopedAttendance} reports={scopedReports} automations={scopedDailyReportAutomations} holidayOverrides={holidayOverrides} instructions={scopedPresidentInstructions} users={announcementRecipients} onReport={() => navigate("report")} onReportDate={openReportDate} onConfirmReport={openExistingReport} onCalendarReport={(report) => openExistingReport(report, true)} initialCalendarDate={calendarDate} notify={notify} />}
+      {section === "report" && <ReportPage reports={scopedReports} categories={categories} attendance={scopedAttendance} editing={editingReport} initialDate={initialReportDate} reviewFromCalendar={Boolean(calendarDate)} onDone={finishReport} notify={notify} />}
       {section === "records" && <RecordsPage onOpenReplies={setReplyReportId} attendance={scopedAttendance} reports={scopedReports} categories={categories} onEditReport={openExistingReport} notify={notify} />}
       {section === "products" && <ProductsPage products={scopedProducts} observations={scopedObservations} revisions={scopedProductRevisions} users={sortedUsers} notify={notify} />}
       {businessFeatureAvailable && (section === "business" || section === "weeklyTodo" || section === "businessReview")

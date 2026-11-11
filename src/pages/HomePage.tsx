@@ -23,7 +23,8 @@ type HomeApp = { id: string; label: string; icon: LucideIcon; color: string; vis
 export function HomePage({ onSection, onAnnouncements, canManageAccounts = false, homeVisit = 0, ...operations }: HomePageProps) {
   const { profile } = useAuth();
   const { locale, t } = useI18n();
-  const [tool, setTool] = useState<HomeTool | null>(null);
+  const { initialCalendarDate } = operations;
+  const [tool, setTool] = useState<HomeTool | null>(initialCalendarDate ? "calendar" : null);
   const [aiUsage, setAiUsage] = useState<AuditEvent[]>([]);
   const launcherRef = useRef<HTMLElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
@@ -31,7 +32,7 @@ export function HomePage({ onSection, onAnnouncements, canManageAccounts = false
   const manager = profile?.role === "employee_manager";
   const today = todayJst();
   const ja = locale === "ja";
-  useEffect(() => { setTool(null); }, [homeVisit, profile?.uid]);
+  useEffect(() => { setTool(initialCalendarDate ? "calendar" : null); }, [homeVisit, initialCalendarDate, profile?.uid]);
   useEffect(() => {
     if (manager && !tool) return watchAiUsageEvents(setAiUsage);
   }, [manager, tool]);

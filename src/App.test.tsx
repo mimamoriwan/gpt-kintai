@@ -81,16 +81,31 @@ vi.mock("./components/PresidentInstructions", () => ({
   InstructionShortcut: () => null
 }));
 
-vi.mock("./pages/HomePage", () => ({ HomePage: ({ onSection, onAnnouncements, homeVisit }: { onSection: (section: string) => void; onAnnouncements: () => void; homeVisit: number }) => <>
+vi.mock("./pages/HomePage", () => ({ HomePage: ({ onSection, onAnnouncements, homeVisit, onCalendarReport, initialCalendarDate }: {
+  onSection: (section: string) => void;
+  onAnnouncements: () => void;
+  homeVisit: number;
+  onCalendarReport: (report: DailyReport) => void;
+  initialCalendarDate?: string;
+}) => <>
   <h1>ホーム画面の内容</h1><output aria-label="ホーム表示回数">{homeVisit}</output>
   <button onClick={() => onSection("updates")}>ホームアイコン：更新情報</button>
   <button onClick={onAnnouncements}>ホームアイコン：お知らせ</button>
+  {authState.reports.map((report) => <button key={report.id} onClick={() => onCalendarReport(report)}>{report.reportDate}の日報を確認</button>)}
+  {initialCalendarDate && <output aria-label="カレンダーの選択日">{initialCalendarDate}</output>}
 </> }));
 vi.mock("./pages/UpdatesPage", () => ({ UpdatesPage: () => <h1>更新履歴の内容</h1> }));
 vi.mock("./pages/LoginPage", () => ({ LoginPage: () => null }));
 vi.mock("./pages/AuthRecoveryPage", () => ({ AuthRecoveryPage: () => null }));
 vi.mock("./pages/InitialPasswordChangePage", () => ({ InitialPasswordChangePage: () => null }));
-vi.mock("./pages/ReportPage", () => ({ ReportPage: ({ initialDate }: { initialDate?: string }) => <output aria-label="追加先の日報日付">{initialDate}</output> }));
+vi.mock("./pages/ReportPage", () => ({ ReportPage: ({ initialDate, reviewFromCalendar, onDone }: {
+  initialDate?: string;
+  reviewFromCalendar?: boolean;
+  onDone: () => void;
+}) => <>
+  <output aria-label="追加先の日報日付">{initialDate}</output>
+  {reviewFromCalendar && <button onClick={onDone}>カレンダーへ戻る</button>}
+</> }));
 vi.mock("./pages/RecordsPage", () => ({ RecordsPage: () => null }));
 vi.mock("./pages/AdminPage", () => ({ AdminPage: () => null }));
 vi.mock("./pages/SettingsPage", () => ({ SettingsPage: () => null }));
@@ -123,6 +138,20 @@ afterEach(() => {
   localStorage.removeItem("gyoumulog-locale");
   document.documentElement.lang = "ja";
   vi.restoreAllMocks();
+});
+
+describe("Calendar report navigation", () => {
+  it("returns to the date opened from the calendar and clears it on normal home navigation", async () => {
+    const date = "2026-09-01";
+    authState.reports = [{ id: "draft", userId: authState.profile.uid, reportDate: date, status: "provisional" } as DailyReport];
+    await renderApp();
+    fireEvent.click(screen.getByRole("button", { name: `${date}の日報を確認` }));
+    expect(screen.getByLabelText("追加先の日報日付")).toHaveTextContent(date);
+    fireEvent.click(screen.getByRole("button", { name: "カレンダーへ戻る" }));
+    expect(screen.getByLabelText("カレンダーの選択日")).toHaveTextContent(date);
+    fireEvent.click(screen.getAllByRole("button", { name: "ホーム" })[0]);
+    expect(screen.queryByLabelText("カレンダーの選択日")).not.toBeInTheDocument();
+  });
 });
 
 describe("App Check recovery integration", () => {

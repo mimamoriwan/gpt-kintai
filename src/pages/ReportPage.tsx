@@ -30,12 +30,13 @@ const defaultTags = [
   { id: "other", ja: "その他", zh: "其他" }
 ] as const;
 
-export function ReportPage({ reports, categories, attendance, editing, initialDate, onDone, notify }: {
+export function ReportPage({ reports, categories, attendance, editing, initialDate, reviewFromCalendar = false, onDone, notify }: {
   reports: DailyReport[];
   categories: Category[];
   attendance: AttendanceRecord[];
   editing: DailyReport | null;
   initialDate?: string;
+  reviewFromCalendar?: boolean;
   onDone: () => void;
   notify: (type: "success" | "error", message: string) => void;
 }) {
@@ -61,6 +62,7 @@ export function ReportPage({ reports, categories, attendance, editing, initialDa
   const [newTag, setNewTag] = useState("");
   const [showTagInput, setShowTagInput] = useState(false);
   const [editingWorkLogId, setEditingWorkLogId] = useState<string | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const workMemoRef = useRef<HTMLTextAreaElement>(null);
   const workFileRef = useRef<HTMLInputElement>(null);
   const existingForDate = useMemo(() => reports.find((item) => item.userId === profile?.uid && item.reportDate === reportDate), [profile?.uid, reportDate, reports]);
@@ -110,6 +112,10 @@ export function ReportPage({ reports, categories, attendance, editing, initialDa
   useEffect(() => {
     resizeTextarea(workMemoRef.current);
   }, [workMemo]);
+
+  useEffect(() => {
+    if (reviewFromCalendar) headingRef.current?.focus({ preventScroll: true });
+  }, [reviewFromCalendar]);
 
   useEffect(() => {
     const resize = () => resizeTextarea(workMemoRef.current);
@@ -281,21 +287,25 @@ export function ReportPage({ reports, categories, attendance, editing, initialDa
     finally { setBusy(false); }
   }
 
+  const WorkLogCard = reviewFromCalendar ? "details" : "section";
+  const isProvisional = activeReport?.status === "provisional";
   return (
     <div className="page report-page">
-      <div className="page-heading"><div><span className="eyebrow">DAILY WORK REPORT</span><h1>{activeReport?.status === "provisional" ? (locale === "ja" ? "自動作成された日報を確認" : "确认自动生成的日报") : activeReport ? t("editSubmitted") : t("dailyReport")}</h1><p>{activeReport?.status === "provisional" ? (locale === "ja" ? "内容を確認・修正して正式提出してください" : "请确认并修改内容后正式提交") : (locale === "ja" ? "記録する日を最初に選んでください" : "请先选择要记录的日期")}</p></div></div>
-      <section className="card report-date-card">
-        <label>
+      <div className="page-heading"><div><span className="eyebrow">DAILY WORK REPORT</span><h1 ref={headingRef} tabIndex={reviewFromCalendar ? -1 : undefined}>{isProvisional ? (locale === "ja" ? "自動作成された日報を確認" : "确认自动生成的日报") : activeReport ? t("editSubmitted") : t("dailyReport")}</h1><p>{isProvisional ? (locale === "ja" ? "内容を確認・修正して正式提出してください" : "请确认并修改内容后正式提交") : (locale === "ja" ? "記録する日を最初に選んでください" : "请先选择要记录的日期")}</p></div></div>
+      <section className={`card report-date-card${reviewFromCalendar ? " review-date" : ""}`}>
+        {!reviewFromCalendar && <label>
           <span><CalendarDays size={18} />{locale === "ja" ? "日報の日付" : "日报日期"}</span>
           <input type="date" value={reportDate} onChange={(e) => changeReportDate(e.target.value)} max={todayJst()} required />
-        </label>
+        </label>}
         <div>
+          {reviewFromCalendar && <CalendarDays size={18} aria-hidden="true" />}
           <strong>{formatDate(reportDate, locale === "ja" ? "ja-JP" : "zh-CN")}</strong>
-          {activeReport && <span className={`status-chip ${activeReport.status === "provisional" ? "blue" : "amber"}`}>{activeReport.status === "provisional" ? (locale === "ja" ? "自動作成済み・本人未確認" : "已自动生成・待本人确认") : (locale === "ja" ? "提出済み・修正中" : "已提交・修改中")}</span>}
+          {activeReport && <span className={`status-chip ${isProvisional ? "blue" : "amber"}`}>{isProvisional ? (locale === "ja" ? "自動作成済み・本人未確認" : "已自动生成・待本人确认") : (locale === "ja" ? "提出済み・修正中" : "已提交・修改中")}</span>}
         </div>
       </section>
-      <section className="card work-log-card">
-        <div className="work-log-heading"><span><Tags size={20} /><strong>{locale === "ja" ? "今日の業務メモ" : "今天的工作记录"}</strong></span><small>{locale === "ja" ? "仕事のたびに短く追加できます" : "每完成一项工作即可简短记录"}</small></div>
+      <WorkLogCard className={`card work-log-card${reviewFromCalendar ? " review-memos" : ""}`} onToggle={reviewFromCalendar ? () => resizeTextarea(workMemoRef.current) : undefined}>
+        {reviewFromCalendar && <summary>{locale === "ja" ? "元の業務メモを表示" : "查看原始工作记录"}</summary>}
+        {!reviewFromCalendar && <div className="work-log-heading"><span><Tags size={20} /><strong>{locale === "ja" ? "今日の業務メモ" : "今天的工作记录"}</strong></span><small>{locale === "ja" ? "仕事のたびに短く追加できます" : "每完成一项工作即可简短记录"}</small></div>}
         <div className="work-tag-list">
           {availableTags.map((tag) => <button type="button" key={tag.id} className={selectedTag === tag.id ? "active" : ""} onClick={() => setSelectedTag(tag.id)}>{tag.label}</button>)}
           <button type="button" className="add-tag" onClick={() => setShowTagInput((value) => !value)}><Plus size={15} />{locale === "ja" ? "個人タグ" : "个人标签"}</button>
@@ -317,7 +327,7 @@ export function ReportPage({ reports, categories, attendance, editing, initialDa
         <button type="button" className="button ai-draft-button" onClick={() => void buildDraft()} disabled={aiBusy || !workLogs.length}><WandSparkles size={19} />{aiBusy ? (locale === "ja" ? "下書きを作成中…" : "正在生成草稿…") : (locale === "ja" ? "AIでメモ・添付から日報を作成" : "用AI根据备忘和附件生成日报")}</button>
         {draftMeta && <div className="ai-draft-result" role="status"><strong>{draftMeta.cached ? (locale === "ja" ? "保存済み下書きを再利用" : "已复用保存的草稿") : (locale === "ja" ? "AIで新しい下書きを作成" : "AI已生成新草稿")}</strong><span>{locale === "ja" ? `AIへ送信した添付資料：${draftMeta.analyzedAttachmentCount}件${draftMeta.skippedLinkCount ? `／未解析URL：${draftMeta.skippedLinkCount}件` : ""}` : `发送给AI的附件：${draftMeta.analyzedAttachmentCount}个${draftMeta.skippedLinkCount ? `／未分析URL：${draftMeta.skippedLinkCount}个` : ""}`}</span>{Boolean(draftMeta.analyzedAttachmentNames?.length) && <small>{locale === "ja" ? "送信済み：" : "已发送："}{draftMeta.analyzedAttachmentNames?.join("、")}</small>}</div>}
         <p className="ai-privacy-note">{locale === "ja" ? "タグ・業務メモ・保存した添付ファイルは、終業後の自動仮作成またはこのボタンでの作成時にOpenAI APIへ送信されます。URLリンクは自動解析しません。生成した下書きは再利用のため保存し、同じ内容ではAPIを再実行しません。" : "标签、工作记录及已保存附件会在结束工作后的自动临时生成或点击此按钮时发送给OpenAI API。不会自动分析URL链接。生成结果会保存，相同内容不会再次调用API。"}</p>
-      </section>
+      </WorkLogCard>
 
       <form className="card report-form" onSubmit={submit} id="report-details">
         <div className="form-section report-form-header language-only">
@@ -336,7 +346,10 @@ export function ReportPage({ reports, categories, attendance, editing, initialDa
         </div>
         {attachments.length > 0 && <div className="form-section legacy-report-attachments"><div className="label-row"><span>{locale === "ja" ? "以前の日報全体に添付された資料" : "以前附加到整份日报的资料"}</span><small>{locale === "ja" ? "既存資料を保持しています" : "保留已有资料"}</small></div><div className="attachment-list">{attachments.map((item) => <div key={item.id}>{item.linkUrl ? <Link2 size={18} /> : item.contentType.startsWith("image/") ? <Image size={18} /> : <FileText size={18} />}<a href={item.linkUrl || item.downloadUrl} target="_blank" rel="noreferrer">{item.name}</a><button type="button" onClick={() => setAttachments((current) => current.filter((entry) => entry.id !== item.id))}><Trash2 size={17} /></button></div>)}</div><p className="storage-note">{locale === "ja" ? "今後の資料は、上の各業務報告に添付してください。" : "今后的资料请附加到上方各条工作报告中。"}</p></div>}
         {activeReport?.status !== "provisional" && activeReport && <div className="form-section"><label><span>{t("correctionReason")} <b>*</b></span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={locale === "ja" ? "例：訪問先名の入力誤りを訂正" : "例：更正访问单位名称"} required /></label><p className="history-note">{locale === "ja" ? "修正前の内容と修正理由は履歴として保存されます。" : "修改前的内容和原因将保存在历史记录中。"}</p></div>}
-        <div className="form-footer"><button type="button" className="button ghost" onClick={onDone}>{t("cancel")}</button><button className="button primary large" disabled={busy}>{busy ? t("submitting") : activeReport?.status === "provisional" ? (locale === "ja" ? "内容を確認して正式提出" : "确认内容并正式提交") : t("saveSubmit")}</button></div>
+        <div className="form-footer">
+          <button type="button" className="button ghost" disabled={reviewFromCalendar && busy} onClick={onDone}>{reviewFromCalendar ? (locale === "ja" ? "カレンダーへ戻る" : "返回日历") : t("cancel")}</button>
+          <button className="button primary large" disabled={busy}>{busy ? t("submitting") : isProvisional ? (locale === "ja" ? "内容を確認して正式提出" : "确认内容并正式提交") : t("saveSubmit")}</button>
+        </div>
       </form>
     </div>
   );
