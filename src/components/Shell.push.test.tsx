@@ -27,6 +27,12 @@ describe("opening an announcement notification", () => {
     expect(screen.getByLabelText("draft")).toHaveValue("unsaved text");
     expect(f.handled).toHaveBeenCalledOnce(); expect(f.notify).not.toHaveBeenCalled();
   });
+  it("lets the live list remove a post previously opened from a notification", async () => {
+    const state = show();
+    expect(await screen.findByRole("dialog")).toHaveTextContent("post:1");
+    state.rerender(<Shell section="report" onSection={vi.fn()} instructions={[]} users={[]} notify={state.notify} onNotificationHandled={state.handled}>{null}</Shell>);
+    expect(screen.getByRole("dialog")).toHaveTextContent("post:0");
+  });
   it.each(["missing", "not-recipient", "demo"])("rejects %s posts and explains failure", async kind => {
     if (kind === "missing") f.get.mockRejectedValue(new Error("not-found"));
     else f.get.mockResolvedValue({ id: "post", authorId: "author", recipientIds: kind === "not-recipient" ? ["other"] : ["owner"], isDemo: kind === "demo" });

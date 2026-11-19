@@ -4,7 +4,7 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
+  getDocFromServer,
   limitToLast,
   onSnapshot,
   orderBy,
@@ -148,8 +148,8 @@ export function watchPresidentInstructions(
 
 export async function getAnnouncementForNotification(id: string): Promise<PresidentInstruction> {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error("invalid-announcement-id");
-  const snapshot = await getDoc(doc(db, "presidentInstructions", id));
-  if (!snapshot.exists()) throw new Error("announcement-not-found");
+  const snapshot = await getDocFromServer(doc(db, "presidentInstructions", id));
+  if (!snapshot.exists() || snapshot.data().status === "cancelled") throw new Error("announcement-not-found");
   return { id: snapshot.id, ...snapshot.data() } as PresidentInstruction;
 }
 
@@ -243,8 +243,6 @@ export interface InstructionFileUploadOptions {
   onUploaded?: (attachment: Attachment) => void;
   onProgress?: (current: number, total: number) => void;
 }
-const uploadSharedAnnouncement=createAnnouncementUploader({prepare:()=>prepareCallableSecurityContext(false),put:async(file,attachment,instructionId,profile)=>{await uploadBytes(ref(storage,attachment.storagePath!),file,{contentType:file.type,customMetadata:{ownerId:profile.uid,instructionId,...(profile.isDemo?{isDemo:'true',demoDatasetId:profile.demoDatasetId||''}:{})}});return attachment;}});
-export async function uploadPresidentInstructionFiles(profile: UserProfile,instructionId: string,files: File[],existing: Attachment[],options: InstructionFileUploadOptions = {}):Promise<Attachment[]>{return uploadSharedAnnouncement(profile,instructionId,files,existing,options);}
 
 export function presidentInstructionAttachmentUrl(storagePath: string): Promise<string> {
   return getDownloadURL(ref(storage, storagePath));
@@ -792,3 +790,5 @@ export const saveNonWorkingReason = (input: Omit<NonWorkingReason, "id" | "userN
 export const saveEvidenceReference = (input: Omit<EvidenceReference, "id" | "createdBy" | "createdAt" | "updatedAt"> & { id?: string }) => callSave("saveEvidenceReference", input);
 export const saveMonthlyPackage = (input: { userId: string; month: string; driveUrl: string }) => callSave("saveMonthlyPackage", input);
 export const saveRenewalChecklist = (input: Omit<RenewalChecklist, "id" | "userName" | "updatedBy" | "createdAt" | "updatedAt">) => callSave("saveRenewalChecklist", input);
+const uploadSharedAnnouncement=createAnnouncementUploader({prepare:()=>prepareCallableSecurityContext(false),put:async(file,attachment,instructionId,profile)=>{await uploadBytes(ref(storage,attachment.storagePath!),file,{contentType:file.type,cacheControl:'private, no-store',customMetadata:{ownerId:profile.uid,instructionId,...(profile.isDemo?{isDemo:'true',demoDatasetId:profile.demoDatasetId||''}:{})}});return attachment;}});
+export async function uploadPresidentInstructionFiles(profile: UserProfile,instructionId: string,files: File[],existing: Attachment[],options: InstructionFileUploadOptions = {}):Promise<Attachment[]>{return uploadSharedAnnouncement(profile,instructionId,files,existing,options);}

@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-19-announcement-cancellation",
+    updatedAt: "2026-11-19T10:16:46+09:00",
+    kind: "fix",
+    content: {
+      ja: {
+        title: "取り消したお知らせの閲覧を停止",
+        areas: ["お知らせ", "添付資料", "投稿取消・再発信"],
+        changes: ["取り消した投稿を受信者の一覧から外し、発信者の履歴には取消日時と理由を表示します。", "取消後は本文・返信・添付資料を開けず、発行済みの添付リンクも失効します。"],
+        benefits: ["取り消した投稿を受信者が再び開くことを防げます。"]
+      },
+      "zh-CN": {
+        title: "停止查看已撤回的通知",
+        areas: ["通知", "附件", "撤回与重新发布"],
+        changes: ["已撤回的通知从收件人的列表中移除，发件人的历史记录显示撤回时间和原因。", "撤回后无法打开正文、回复和附件，已发出的附件链接也会失效。"],
+        benefits: ["收件人无法再次打开已撤回的通知。"]
+      }
+    }
+  },
+  {
     id: "2026-11-11-calendar-report-review",
     updatedAt: "2026-11-11T10:57:29+09:00",
     kind: "improvement",

@@ -1,7 +1,8 @@
 import { getFirestore } from 'firebase-admin/firestore';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
-import { ANNOUNCEMENT_RELEASE, createAnnouncementService, type AnnouncementOperation } from '@coco/announcements/server';
+import { ANNOUNCEMENT_RELEASE, cancellationArchiveCollection, createAnnouncementService, revokeCancelledAnnouncementAttachments, type AnnouncementOperation } from '@coco/announcements/server';
 import { requireWorkAuth } from './passwordChange.js';
 import * as logger from 'firebase-functions/logger';
 
@@ -28,3 +29,10 @@ export const replyToPresidentInstruction=endpoint('replyToPresidentInstruction')
 export const remindPresidentInstruction=endpoint('remindPresidentInstruction');
 export const retryPresidentInstructionTranslation=endpoint('retryPresidentInstructionTranslation');
 export const listAnnouncementRecipients=endpoint('listAnnouncementRecipients');
+
+export const revokeCancelledAnnouncementFiles = onDocumentCreated({
+  document: `${cancellationArchiveCollection}/{instructionId}`, region: 'asia-northeast1', retry: true
+}, async event => {
+  try { await revokeCancelledAnnouncementAttachments(getFirestore(), event.params.instructionId); }
+  catch { throw new Error('Cancelled announcement attachment revocation needs retry'); }
+});

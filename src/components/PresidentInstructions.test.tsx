@@ -155,11 +155,12 @@ describe("president instructions", () => {
     expect(screen.getByRole("article")).not.toHaveClass("urgent");
   });
 
-  it("prioritizes cancellation over the recipient state and removes red emphasis", () => {
-    render(<InstructionCenter instructions={[row({ status: "cancelled", priority: "urgent", dueDate: "2000-01-01" })]} users={[]} open onClose={vi.fn()} notify={vi.fn()} />);
-    expect(screen.getByRole("article").querySelector(".instruction-card-tags")).toHaveTextContent("已取消");
-    expect(screen.getByRole("article")).not.toHaveClass("overdue");
-    expect(screen.getByRole("article")).not.toHaveClass("urgent");
+  it("keeps an authored cancellation neutral even for a formerly urgent post", () => {
+    render(<InstructionCenter instructions={[row({ authorId: "fang", status: "cancelled", priority: "urgent", dueDate: "2000-01-01" })]} users={[]} open onClose={vi.fn()} notify={vi.fn()} />);
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+    expect(screen.getByRole("article")).toHaveTextContent("已取消");
+    expect(screen.getByRole("article")).not.toHaveClass("overdue", "urgent");
     expect(screen.queryByRole("button", { name: "我已确认内容" })).not.toBeInTheDocument();
   });
 
@@ -240,8 +241,9 @@ describe("president instructions", () => {
       row({ id: "sent", titleZh: "发出的通知", authorId: "fang", recipientIds: ["manager"], recipientStates: { manager: { userId: "manager", displayName: "管理担当", status: "pending" } } })
     ]} users={[]} open onClose={vi.fn()} notify={vi.fn()} />);
 
+    expect(screen.queryByText("取消的通知")).not.toBeInTheDocument();
     expect(announcementToggle("未读通知")).toHaveAttribute("aria-expanded", "true");
-    for (const title of ["已读通知", "个人已完成通知", "结束的通知", "取消的通知", "发出的通知"]) {
+    for (const title of ["已读通知", "个人已完成通知", "结束的通知", "发出的通知"]) {
       const toggle = announcementToggle(title);
       expect(toggle).toHaveAttribute("aria-expanded", "false");
       expect(document.getElementById(toggle.getAttribute("aria-controls")!)).not.toBeVisible();
@@ -250,6 +252,24 @@ describe("president instructions", () => {
     expect(screen.queryByRole("button", { name: "完成处理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消并重新发布" })).not.toBeInTheDocument();
     expect(apiMocks.acknowledgePresidentInstruction).not.toHaveBeenCalled();
+  });
+
+  it("removes a selected post on cancellation and keeps only the author's history entry", () => {
+    const active = row({ id: "withdrawn", bodyZh: "仅供收件人阅读" });
+    const cancelled = { ...active, status: "cancelled" as const, cancellationReason: "上传错误" };
+    const props = { users: [], open: true, selectedInstructionId: active.id, onClose: vi.fn(), notify: vi.fn() };
+    const { rerender } = render(<InstructionCenter {...props} instructions={[active]} />);
+    expect(screen.getByText("仅供收件人阅读")).toBeVisible();
+    rerender(<InstructionCenter {...props} instructions={[cancelled]} />);
+    expect(screen.queryByText("仅供收件人阅读")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "历史" }));
+    expect(screen.queryByText("已取消")).not.toBeInTheDocument();
+
+    rerender(<InstructionCenter {...props} instructions={[{ ...cancelled, authorId: "fang" }]} />);
+    expect(screen.getByText("已取消")).toBeVisible();
+    expect(screen.getByText("取消原因：上传错误")).toBeVisible();
+    expect(screen.queryByText("仅供收件人阅读")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: active.titleZh })).not.toBeInTheDocument();
   });
 
   it("allows unread content to be collapsed without confirming it and preserves the choice during updates", () => {
@@ -410,9 +430,9 @@ describe("president instructions", () => {
       row({ id: "sent", titleZh: "自己发布的通知", authorId: "fang", recipientIds: ["manager"], recipientStates: { manager: { userId: "manager", displayName: "管理担当", status: "acknowledged" } } })
     ]} users={[]} open onClose={vi.fn()} notify={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "已确认 4" }));
-    expect(screen.getByRole("button", { name: "已确认 4" })).toHaveAttribute("aria-pressed", "true");
-    expectAnnouncementOrder(["已确认处理中", "个人处理完成", "全体处理完成", "确认后取消"]);
+    fireEvent.click(screen.getByRole("button", { name: "已确认 3" }));
+    expect(screen.getByRole("button", { name: "已确认 3" })).toHaveAttribute("aria-pressed", "true");
+    expectAnnouncementOrder(["已确认处理中", "个人处理完成", "全体处理完成"]);
     expect(screen.queryByRole("heading", { name: "自己发布的通知" })).not.toBeInTheDocument();
     expect(apiMocks.acknowledgePresidentInstruction).not.toHaveBeenCalled();
   });
@@ -557,7 +577,12 @@ describe("president instructions", () => {
     { scenario: "the announcement is completed", authorId: "fang", status: "completed", recipientStatus: "pending" }
   ] as const)("does not offer reminders when $scenario", ({ authorId, status, recipientStatus }) => {
     render(<InstructionCenter instructions={[row({ authorId, status, recipientStates: { fang: { userId: "fang", displayName: "方", status: recipientStatus } } })]} users={[]} open onClose={vi.fn()} notify={vi.fn()} />);
-    if (announcementToggle().getAttribute("aria-expanded") === "false") fireEvent.click(announcementToggle());
+    if (status === "cancelled") {
+      fireEvent.click(screen.getByRole("button", { name: "历史" }));
+      expect(screen.getByText("已取消")).toBeVisible();
+    } else if (announcementToggle().getAttribute("aria-expanded") === "false") {
+      fireEvent.click(announcementToggle());
+    }
 
     expect(screen.queryByRole("button", { name: /提醒 \d+位未确认者/ })).not.toBeInTheDocument();
     expect(apiMocks.remindPresidentInstruction).not.toHaveBeenCalled();

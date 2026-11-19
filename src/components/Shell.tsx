@@ -20,12 +20,14 @@ export function Shell({ section, onSection, instructions, users, notify, childre
   const [instructionCenterOpen, setInstructionCenterOpen] = useState(false);
   const [selectedInstructionId, setSelectedInstructionId] = useState<string>();
   const [notificationInstruction, setNotificationInstruction] = useState<PresidentInstruction | null>(null);
+  // Once the live list emits, it owns visibility, including removal after cancellation.
+  useEffect(() => setNotificationInstruction(null), [instructions]);
   useEffect(() => {
     if (!notificationInstructionId || !profile?.uid) return;
     let active = true;
     void getAnnouncementForNotification(notificationInstructionId).then(row => {
       if (!active) return;
-      if ((row.authorId !== profile.uid && !row.recipientIds.includes(profile.uid)) || !filterDemoScope([row], profile, false).length) throw new Error("not-authorized");
+      if (row.status === "cancelled" || (row.authorId !== profile.uid && !row.recipientIds.includes(profile.uid)) || !filterDemoScope([row], profile, false).length) throw new Error("not-authorized");
       setNotificationInstruction(row);
       setSelectedInstructionId(row.id);
       setInstructionCenterOpen(true);
@@ -104,7 +106,7 @@ export function Shell({ section, onSection, instructions, users, notify, childre
         {items.filter((item) => item.visible).map((item) => <button type="button" key={item.id} className={activeSection === item.id ? "active" : ""} aria-current={activeSection === item.id ? "page" : undefined} onClick={() => openSection(item.id)}><item.icon size={21} /><span>{item.label}</span></button>)}
       </nav>
       <InstructionReminder key={`reminder-${profile?.uid}`} instructions={instructions} onOpen={openInstructions} paused={instructionCenterOpen} />
-      <InstructionCenter key={profile?.uid} instructions={notificationInstruction && !instructions.some(row => row.id === notificationInstruction.id) ? [...instructions, notificationInstruction] : instructions} users={users} open={instructionCenterOpen} onClose={() => setInstructionCenterOpen(false)} notify={notify} initialDraft={announcementDraft} selectedInstructionId={selectedInstructionId} />
+      <InstructionCenter key={profile?.uid} instructions={notificationInstruction && !instructions.some(row => row.id === notificationInstruction.id) ? [...instructions, notificationInstruction] : instructions} users={users} open={instructionCenterOpen} onClose={() => { setInstructionCenterOpen(false); setNotificationInstruction(null); }} notify={notify} initialDraft={announcementDraft} selectedInstructionId={selectedInstructionId} />
     </>
   );
 }
