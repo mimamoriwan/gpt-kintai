@@ -17,7 +17,7 @@
     "firebase-functions": "^7.2.5",
     "openai": "^6.46.0",
     "zod": "^4.4.3",
-    "@coco/announcements": "file:vendor/coco-announcements-1.0.1-d1ff78302b37.tgz"
+    "@coco/announcements": "file:vendor/coco-announcements-1.0.2-bd38665f6ceb.tgz"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

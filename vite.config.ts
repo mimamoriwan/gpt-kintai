@@ -25,7 +25,10 @@ export default defineConfig({
           { src: "/pwa-512.png", sizes: "512x512", type: "image/png" }
         ]
       },
-      injectManifest: { globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"] }
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"],
+        globIgnores: ["**/assets/pdf-*.js", "**/assets/pdf.worker*"]
+      }
     })
   ],
   build: {

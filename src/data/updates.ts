@@ -17,6 +17,25 @@ export interface UpdateEntry {
 // Record actual change times with an explicit time zone. See docs/update-history.md.
 export const updates: readonly UpdateEntry[] = [
   {
+    id: "2026-11-24-announcement-shared-attachment-tags",
+    updatedAt: "2026-11-24T09:42:39+09:00",
+    kind: "feature",
+    content: {
+      ja: {
+        title: "お知らせの添付資料をタグで探す",
+        areas: ["お知らせ", "添付資料"],
+        changes: ["添付ごとに最大3つのタグを付けられます。発信者は送付済みの添付も再送せずに整理できます。", "読み取れるPDF・Word・Excelは、必要なときに本文からAIのタグ候補を作れます。"],
+        benefits: ["添付資料の一覧からファイル名やタグで探し、その場でダウンロードできます。"]
+      },
+      "zh-CN": {
+        title: "按标签查找通知附件",
+        areas: ["通知", "附件资料"],
+        changes: ["每个附件可添加最多三个标签。发件人可为已发送的附件编辑标签，无需重新发送。", "可按需根据包含可提取文字的 PDF、Word 或 Excel 文档生成 AI 标签建议。"],
+        benefits: ["可在附件列表中按文件名或标签查找并直接下载文件。"]
+      }
+    }
+  },
+  {
     id: "2026-11-19-announcement-cancellation",
     updatedAt: "2026-11-19T10:16:46+09:00",
     kind: "fix",

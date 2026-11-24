@@ -2591,4 +2591,4 @@ const productImageAnalysisFormat = {
 export const completeInitialPasswordChange = onCall(callableOptions, async (request) => {
   return completePasswordSetup(request.auth, request.data, { db: firestore, auth: getAuth() });
 });
-export {createPresidentInstruction,remindPresidentInstruction,replyToPresidentInstruction,acknowledgePresidentInstruction,completePresidentInstruction,cancelPresidentInstruction,replacePresidentInstruction,retryPresidentInstructionTranslation,listAnnouncementRecipients,revokeCancelledAnnouncementFiles} from './announcementEndpoints.js';
+export {createPresidentInstruction,remindPresidentInstruction,replyToPresidentInstruction,acknowledgePresidentInstruction,completePresidentInstruction,cancelPresidentInstruction,replacePresidentInstruction,retryPresidentInstructionTranslation,listAnnouncementRecipients,revokeCancelledAnnouncementFiles,updatePresidentInstructionAttachmentTags,suggestPresidentInstructionAttachmentTags} from './announcementEndpoints.js';

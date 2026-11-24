@@ -16,6 +16,7 @@ import {
   type QueryConstraint
 } from "firebase/firestore";
 import {
+  getBlob,
   getDownloadURL,
   ref,
   uploadBytes
@@ -792,3 +793,14 @@ export const saveMonthlyPackage = (input: { userId: string; month: string; drive
 export const saveRenewalChecklist = (input: Omit<RenewalChecklist, "id" | "userName" | "updatedBy" | "createdAt" | "updatedAt">) => callSave("saveRenewalChecklist", input);
 const uploadSharedAnnouncement=createAnnouncementUploader({prepare:()=>prepareCallableSecurityContext(false),put:async(file,attachment,instructionId,profile)=>{await uploadBytes(ref(storage,attachment.storagePath!),file,{contentType:file.type,cacheControl:'private, no-store',customMetadata:{ownerId:profile.uid,instructionId,...(profile.isDemo?{isDemo:'true',demoDatasetId:profile.demoDatasetId||''}:{})}});return attachment;}});
 export async function uploadPresidentInstructionFiles(profile: UserProfile,instructionId: string,files: File[],existing: Attachment[],options: InstructionFileUploadOptions = {}):Promise<Attachment[]>{return uploadSharedAnnouncement(profile,instructionId,files,existing,options);}
+export async function updateAttachmentTags(input: import("@coco/announcements").AttachmentTagUpdate): Promise<{ ok: boolean }> {
+  const call = httpsCallable<typeof input, { ok: boolean }>(functions, "updatePresidentInstructionAttachmentTags");
+  return invokeWithVerifiedSecurityContext(prepareCallableSecurityContext, async () => (await call(input)).data);
+}
+export async function suggestAttachmentTags(input: import("@coco/announcements").AttachmentTagSuggestionInput): Promise<{ tags: string[] }> {
+  const call = httpsCallable<typeof input, { tags: string[] }>(functions, "suggestPresidentInstructionAttachmentTags", { timeout: 30_000 });
+  return invokeWithVerifiedSecurityContext(prepareCallableSecurityContext, async () => (await call(input)).data);
+}
+export function downloadAttachmentFile(storagePath: string): Promise<Blob> {
+  return getBlob(ref(storage, storagePath), 10 * 1024 * 1024);
+}
